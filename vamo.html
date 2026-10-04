@@ -53,7 +53,7 @@ dialog p{margin:0 0 1rem;color:var(--mute)}
   <p id="status">Press Start, allow the microphone, then say “Hey Mo”.</p>
 </div>
 
-<label class="opt"><input type="checkbox" id="boost"> Medical boost (on-device, experimental, Chrome only)</label>
+<label class="opt"><input type="checkbox" id="boost"> Medical boost (on-device, experimental, Chrome only) <select id="boostLevel" aria-label="Boost strength"><option value="1">gentle</option><option value="2">medium</option><option value="4">strong</option></select></label>
 <ol id="log" aria-live="polite"></ol>
 
 <h2>Dictation</h2>
@@ -139,6 +139,9 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const has = (t, p) => new RegExp("\\b" + esc(p) + "s?\\b").test(t);
 // Medical words. Mis-heard versions (split, misspelt) are repaired to these.
 const MED_TERMS = ["adenocarcinoma","carcinoma","squamous cell carcinoma","metastasis","metastases","histology","histopathology","immunohistochemistry","immunostain","neoplasm","malignant","lymphovascular invasion","perineural invasion","dysplasia","hyperplasia","metaplasia","anaplasia","pleomorphism","hyperchromasia","desmoplasia","carcinoma in situ","ductal carcinoma in situ","invasive ductal carcinoma","adenoma","lymphoma","sarcoma","melanoma","glioma","necrosis","fibrosis","granuloma","cytology","mitotic figures","frozen section","resection margin","hematoxylin and eosin","haematoxylin and eosin"];
+// Only long, rare words are boosted. Boosting common words (such as dysplasia or ductal) makes
+// the browser force them into sentences where they were not said.
+const BOOST_TERMS = ["adenocarcinoma","squamous cell carcinoma","metastasis","immunohistochemistry","histopathology","lymphovascular invasion","perineural invasion","pleomorphism","hyperchromasia","desmoplasia"];
 const MED_INDEX = MED_TERMS.map(t => [t, t.replace(/ /g, ""), t.split(" ").length]);
 
 function lev(a, b) {
@@ -301,7 +304,7 @@ async function makeRec() {
       }
       if (st !== "available") throw 0;
       r.processLocally = true;
-      r.phrases = MED_TERMS.map(p => new SpeechRecognitionPhrase(p, 5.0));
+      r.phrases = BOOST_TERMS.map(p => new SpeechRecognitionPhrase(p, +$("#boostLevel").value));
     } catch (_) {
       $("#boost").checked = false;
       add("mo", "VAMo: The medical boost isn't available in this browser, so I'm using standard recognition.");
