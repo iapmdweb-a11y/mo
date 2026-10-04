@@ -30,6 +30,7 @@ textarea{width:100%;min-height:130px;padding:12px;border:1px solid var(--line);b
 .row button{padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;cursor:pointer}
 ul.help{margin:0;padding-left:1.2rem}
 .note{color:var(--mute);font-size:.88rem;margin-top:1.6rem}
+.opt{display:block;margin:-.6rem 0 1.2rem;color:var(--mute);font-size:.92rem}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .dev{padding:8px 16px;border-radius:999px;border:1px solid var(--acc);background:none;color:var(--acc);font:inherit;font-weight:700;cursor:pointer}
 dialog{width:min(340px,92vw);padding:26px 22px;border:1px solid var(--line);border-radius:16px;background:var(--panel);color:var(--ink);text-align:center}
@@ -52,6 +53,7 @@ dialog p{margin:0 0 1rem;color:var(--mute)}
   <p id="status">Press Start, allow the microphone, then say “Hey Mo”.</p>
 </div>
 
+<label class="opt"><input type="checkbox" id="boost"> Medical boost (on-device, experimental, Chrome only)</label>
 <ol id="log" aria-live="polite"></ol>
 
 <h2>Dictation</h2>
@@ -90,7 +92,8 @@ const SITES = {youtube:"https://www.youtube.com", gmail:"https://mail.google.com
 const FIXES = {"adeno carcinoma":"adenocarcinoma","aden o carcinoma":"adenocarcinoma","immuno histochemistry":"immunohistochemistry","meta stasis":"metastasis"};
 const NUM = {a:1,an:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,fifteen:15,twenty:20,thirty:30,forty:40,fifty:50,sixty:60};
 const STOPD = ["stop dictation","stop dictating","end dictation","dictation off"];
-const WAKE = /^(?:hey|hay|hi|ok|okay)\s+(?:mo|moe|mow)\b\s*(.*)$/;
+// Browsers often mishear "Mo", so common mis-hearings are accepted. Add more spellings here if needed.
+const WAKE = /^(?:(?:hey|hay|hei|hi|ok|okay|hello)\s*(?:mo|moe|mow|moh|mowe|mohr)|(?:hey|hay|hei)\s*(?:more|mole|mor))\b\s*(.*)$/;
 const JOKES = [
   "Why don't scientists trust atoms? Because they make up everything.",
   "Why did the scarecrow win an award? Because he was outstanding in his field.",
@@ -127,7 +130,51 @@ const ANSWERS = [
 const clean = t => t.toLowerCase().replace(/[^a-z0-9' ]/g, "").replace(/\s+/g, " ").trim();
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const has = (t, p) => new RegExp("\\b" + esc(p) + "s?\\b").test(t);
-const fix = t => Object.entries(FIXES).reduce((s, [w, r]) => s.replace(new RegExp("\\b" + esc(w) + "\\b", "gi"), r), t);
+// Medical words. Mis-heard versions (split, misspelt) are repaired to these.
+const MED_TERMS = ["adenocarcinoma","carcinoma","squamous cell carcinoma","metastasis","metastases","histology","histopathology","immunohistochemistry","immunostain","neoplasm","malignant","lymphovascular invasion","perineural invasion","dysplasia","hyperplasia","metaplasia","anaplasia","pleomorphism","hyperchromasia","desmoplasia","carcinoma in situ","ductal carcinoma in situ","invasive ductal carcinoma","adenoma","lymphoma","sarcoma","melanoma","glioma","necrosis","fibrosis","granuloma","cytology","mitotic figures","frozen section","resection margin","hematoxylin and eosin","haematoxylin and eosin"];
+const MED_INDEX = MED_TERMS.map(t => [t, t.replace(/ /g, ""), t.split(" ").length]);
+
+function lev(a, b) {
+  const d = Array.from({length: a.length + 1}, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+
+function medFix(text) {
+  const w = text.split(/\s+/), hits = [];
+  for (let i = 0; i < w.length; i++) {
+    for (const [term, key, n] of MED_INDEX) {
+      for (const k of [n + 2, n + 1, n, n - 1]) {
+        if (k < 1 || i + k > w.length) continue;
+        const cand = w.slice(i, i + k).join("").toLowerCase().replace(/[^a-z]/g, "");
+        if (cand.length < 7) continue;
+        if (k === 1 && (cand === key || cand === key + "s")) { hits.push({i, k, r: 1, keep: true}); continue; }
+        const r = 1 - lev(cand, key) / Math.max(cand.length, key.length);
+        if (r >= 0.85) hits.push({i, k, r, term});
+      }
+    }
+  }
+  // Best matches win, so a neighbouring word is never swallowed by a weaker match.
+  hits.sort((x, y) => y.r - x.r || y.k - x.k);
+  const used = new Array(w.length).fill(false), pick = {};
+  for (const h of hits) {
+    if (used.slice(h.i, h.i + h.k).some(Boolean)) continue;
+    for (let j = h.i; j < h.i + h.k; j++) used[j] = true;
+    pick[h.i] = h;
+  }
+  const out = [];
+  for (let i = 0; i < w.length;) {
+    const h = pick[i];
+    if (!h || h.keep) { out.push(w[i]); i++; continue; }
+    const trail = (w[i + h.k - 1].match(/[^A-Za-z0-9']*$/) || [""])[0];
+    out.push(h.term + trail); i += h.k;
+  }
+  return out.join(" ");
+}
+
+const fix = t => medFix(Object.entries(FIXES).reduce((s, [w, r]) => s.replace(new RegExp("\\b" + esc(w) + "\\b", "gi"), r), t));
 const pick = a => Array.isArray(a) ? a[Math.floor(Math.random() * a.length)] : a;
 
 function add(cls, text, link) {
@@ -230,15 +277,48 @@ function onText(raw) {
   add("dim", text + " (ignored: say “Hey Mo” first)");
 }
 
-function startMo() {
-  rec = new SR();
-  rec.lang = "en-US"; rec.continuous = true; rec.interimResults = false;
+async function makeRec() {
+  const r = new SR();
+  r.lang = "en-US"; r.continuous = true; r.interimResults = false; r.maxAlternatives = 3;
+  if ($("#boost").checked) {
+    try {
+      if (!("SpeechRecognitionPhrase" in window) || !SR.available) throw 0;
+      const opt = {langs: ["en-US"], processLocally: true};
+      let st = await SR.available(opt);
+      if (st === "downloadable") {
+        status.textContent = "Downloading the on-device speech pack. Please wait...";
+        await SR.install(opt);
+        st = await SR.available(opt);
+      }
+      if (st !== "available") throw 0;
+      r.processLocally = true;
+      r.phrases = MED_TERMS.map(p => new SpeechRecognitionPhrase(p, 5.0));
+    } catch (_) {
+      $("#boost").checked = false;
+      add("mo", "VAMo: The medical boost isn't available in this browser, so I'm using standard recognition.");
+      return makeRec();
+    }
+  }
+  return r;
+}
+
+async function startMo() {
+  rec = await makeRec();
   rec.onresult = e => {
-    for (let i = e.resultIndex; i < e.results.length; i++)
-      if (e.results[i].isFinal && !muted) onText(e.results[i][0].transcript);
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i];
+      if (!res.isFinal || muted) continue;
+      // Check the browser's other guesses too, in case "Hey Mo" is in one of them.
+      const alts = Array.from(res, a => a.transcript);
+      onText(dictating ? alts[0] : (alts.find(a => WAKE.test(clean(a))) || alts[0]));
+    }
   };
   rec.onend = () => { if (on) try { rec.start(); } catch (_) {} };
   rec.onerror = e => {
+    if (e.error === "phrases-not-supported" || e.error === "language-not-supported") {
+      $("#boost").checked = false; stopMo();
+      status.textContent = "The medical boost isn't supported here. Press Start to use standard recognition."; return;
+    }
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
       stopMo(); status.textContent = "The microphone is blocked. Allow it in the address bar, then press Start.";
     }
