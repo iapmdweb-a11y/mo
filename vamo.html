@@ -198,7 +198,9 @@ function speak(t) {
   muted = true;                       // don't listen to Mo's own voice
   const u = new SpeechSynthesisUtterance(t);
   u.lang = "en-US";
-  u.onend = u.onerror = () => setTimeout(() => muted = false, 500);
+  const unmute = () => setTimeout(() => muted = false, 500);
+  u.onend = u.onerror = unmute;
+  setTimeout(() => muted = false, 2000 + t.length * 100);   // safety net
   speechSynthesis.speak(u);
 }
 function say(t, link) { add("mo", "VAMo: " + t, link); speak(t); }
@@ -279,7 +281,7 @@ function onText(raw) {
 
 async function makeRec() {
   const r = new SR();
-  r.lang = "en-US"; r.continuous = true; r.interimResults = false; r.maxAlternatives = 3;
+  r.lang = "en-US"; r.continuous = true; r.interimResults = true; r.maxAlternatives = 3;
   if ($("#boost").checked) {
     try {
       if (!("SpeechRecognitionPhrase" in window) || !SR.available) throw 0;
@@ -303,11 +305,17 @@ async function makeRec() {
 }
 
 async function startMo() {
+  if (!window.isSecureContext) {
+    status.textContent = "The microphone only works on a secure page (https://). Open this page from an https:// address.";
+    return;
+  }
   rec = await makeRec();
   rec.onresult = e => {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const res = e.results[i];
-      if (!res.isFinal || muted) continue;
+      if (!res.isFinal) { if (!muted) status.textContent = "Hearing: " + res[0].transcript; continue; }
+      status.textContent = dictating ? "Dictating. Say “stop dictation” to finish." : "Listening. Say “Hey Mo”.";
+      if (muted) continue;
       // Check the browser's other guesses too, in case "Hey Mo" is in one of them.
       const alts = Array.from(res, a => a.transcript);
       onText(dictating ? alts[0] : (alts.find(a => WAKE.test(clean(a))) || alts[0]));
@@ -319,9 +327,14 @@ async function startMo() {
       $("#boost").checked = false; stopMo();
       status.textContent = "The medical boost isn't supported here. Press Start to use standard recognition."; return;
     }
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-      stopMo(); status.textContent = "The microphone is blocked. Allow it in the address bar, then press Start.";
-    }
+    const problems = {
+      "not-allowed": "The microphone is blocked. Allow it in the address bar, then press Start.",
+      "service-not-allowed": "The microphone is blocked. Allow it in the address bar, then press Start.",
+      "audio-capture": "No microphone was found. Plug one in, or pick it in the browser's site settings.",
+      "network": "The browser's speech service can't be reached. Check your internet connection. Chrome sends audio to Google, and some networks and browsers (such as Brave) block this."
+    };
+    if (problems[e.error]) { stopMo(); status.textContent = problems[e.error]; }
+    else if (e.error !== "no-speech" && e.error !== "aborted") status.textContent = "Speech error: " + e.error;
   };
   rec.start();
   on = true;
