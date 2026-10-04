@@ -89,7 +89,14 @@ const log = $("#log"), mic = $("#mic"), status = $("#status"), dict = $("#dict")
 let rec, on = false, muted = false, dictating = false, awaiting = false, awaitTimer;
 
 const SITES = {youtube:"https://www.youtube.com", gmail:"https://mail.google.com", google:"https://www.google.com", pubmed:"https://pubmed.ncbi.nlm.nih.gov"};
-const FIXES = {"adeno carcinoma":"adenocarcinoma","aden o carcinoma":"adenocarcinoma","immuno histochemistry":"immunohistochemistry","meta stasis":"metastasis"};
+// Add what the browser wrongly wrote (left) and what you meant (right). Longer phrases first.
+const FIXES = {
+  "ed do you know casinoma casino":"adenocarcinoma",
+  "ed do you know casinoma":"adenocarcinoma",
+  "adeno carcinoma":"adenocarcinoma","aden o carcinoma":"adenocarcinoma",
+  "casinoma":"carcinoma","carsinoma":"carcinoma","kasinoma":"carcinoma",
+  "immuno histochemistry":"immunohistochemistry","meta stasis":"metastasis"
+};
 const NUM = {a:1,an:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,fifteen:15,twenty:20,thirty:30,forty:40,fifty:50,sixty:60};
 const STOPD = ["stop dictation","stop dictating","end dictation","dictation off"];
 // Browsers often mishear "Mo", so common mis-hearings are accepted. Add more spellings here if needed.
