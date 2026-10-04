@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VAMo, voice assistant</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1b6b7a">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 :root{--bg:#e8eff2;--panel:#fff;--ink:#14262e;--mute:#5b6f78;--line:#cfdbe0;--acc:#1b6b7a;--hot:#c93c27}
 @media(prefers-color-scheme:dark){:root{--bg:#0f1b20;--panel:#172830;--ink:#e6f0f3;--mute:#8fa6af;--line:#274049;--acc:#4fb3c4;--hot:#ff7a5f}}
@@ -377,6 +380,7 @@ if (MOBILE && SR) {
   status.textContent = "Tap the button, allow the microphone, then speak your question.";
 }
 mic.onclick = () => on ? stopMo() : startMo();
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
 $("#copy").onclick = () => navigator.clipboard.writeText(dict.value);
 $("#clear").onclick = () => dict.value = "";
 const devDlg = $("#devDlg");
