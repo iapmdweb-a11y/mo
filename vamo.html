@@ -33,6 +33,7 @@ textarea{width:100%;min-height:130px;padding:12px;border:1px solid var(--line);b
 .row button{padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;cursor:pointer}
 ul.help{margin:0;padding-left:1.2rem}
 .note{color:var(--mute);font-size:.88rem;margin-top:1.6rem}
+.opt[hidden]{display:none}
 .opt{display:block;margin:-.6rem 0 1.2rem;color:var(--mute);font-size:.92rem}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .dev{padding:8px 16px;border-radius:999px;border:1px solid var(--acc);background:none;color:var(--acc);font:inherit;font-weight:700;cursor:pointer}
@@ -56,6 +57,7 @@ dialog p{margin:0 0 1rem;color:var(--mute)}
   <p id="status">Press Start, allow the microphone, then say “Hey Mo”.</p>
 </div>
 
+<label class="opt" id="handsRow" hidden><input type="checkbox" id="hands"> Hands-free: listen for “Hey Mo” (experimental, keep the screen on)</label>
 <label class="opt"><input type="checkbox" id="boost"> Medical boost (on-device, experimental, Chrome only) <select id="boostLevel" aria-label="Boost strength"><option value="1">gentle</option><option value="2">medium</option><option value="4">strong</option></select></label>
 <ol id="log" aria-live="polite"></ol>
 
@@ -89,9 +91,11 @@ dialog p{margin:0 0 1rem;color:var(--mute)}
 const $ = s => document.querySelector(s);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 // Phones listen poorly in the background, so there it works as tap-to-talk with no wake word.
-const MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-const LISTEN_MSG = MOBILE ? "Listening. Speak now." : "Listening. Say “Hey Mo”.";
-const IDLE_LABEL = MOBILE ? "Tap to talk" : "Start";
+const PHONE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const tapMode = () => PHONE && !$("#hands").checked;      // phones start in tap-to-talk
+const listenMsg = () => tapMode() ? "Listening. Speak now." : "Listening. Say “Hey Mo”.";
+const idleLabel = () => tapMode() ? "Tap to talk" : "Start";
+let lock = null;                                            // keeps the screen on while hands-free
 const log = $("#log"), mic = $("#mic"), status = $("#status"), dict = $("#dict");
 let rec, on = false, muted = false, dictating = false, awaiting = false, awaitTimer;
 
@@ -293,13 +297,13 @@ function onText(raw) {
     say("Yes?"); return;
   }
   if (awaiting) { awaiting = false; add("you", text); handle(text); return; }
-  if (MOBILE) { add("you", text); handle(text); return; }   // phones: no wake word needed
+  if (tapMode()) { add("you", text); handle(text); return; }   // phones: no wake word needed
   add("dim", text + " (ignored: say “Hey Mo” first)");
 }
 
 async function makeRec() {
   const r = new SR();
-  r.lang = "en-US"; r.continuous = !MOBILE; r.interimResults = true; r.maxAlternatives = 3;
+  r.lang = "en-US"; r.continuous = !tapMode(); r.interimResults = true; r.maxAlternatives = 3;
   if ($("#boost").checked) {
     try {
       if (!("SpeechRecognitionPhrase" in window) || !SR.available) throw 0;
@@ -332,7 +336,7 @@ async function startMo() {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const res = e.results[i];
       if (!res.isFinal) { if (!muted) status.textContent = "Hearing: " + res[0].transcript; continue; }
-      status.textContent = dictating ? "Dictating. Say “stop dictation” to finish." : LISTEN_MSG;
+      status.textContent = dictating ? "Dictating. Say “stop dictation” to finish." : listenMsg();
       if (muted) continue;
       // Check the browser's other guesses too, in case "Hey Mo" is in one of them.
       const alts = Array.from(res, a => a.transcript);
@@ -340,7 +344,7 @@ async function startMo() {
     }
   };
   rec.onend = () => {
-    if (on && (!MOBILE || dictating)) { try { rec.start(); } catch (_) {} }
+    if (on && (!tapMode() || dictating)) { try { rec.start(); } catch (_) {} }
     else if (on) stopMo();                       // phones: one phrase per tap
   };
   rec.onerror = e => {
@@ -360,24 +364,33 @@ async function startMo() {
   rec.start();
   on = true;
   mic.classList.add("on"); mic.textContent = "Stop"; mic.setAttribute("aria-pressed", "true");
-  status.textContent = LISTEN_MSG;
-  if (!MOBILE) add("mo", "VAMo: VAMo is ready.");
+  status.textContent = listenMsg();
+  if (!tapMode()) add("mo", "VAMo: VAMo is ready.");
+  if (PHONE && !tapMode() && "wakeLock" in navigator) { try { lock = await navigator.wakeLock.request("screen"); } catch (_) {} }
 }
 
 function stopMo() {
+  if (lock) { lock.release().catch(() => {}); lock = null; }
   on = false; dictating = false; awaiting = false;
   if (rec) try { rec.stop(); } catch (_) {}
-  mic.classList.remove("on"); mic.textContent = IDLE_LABEL; mic.setAttribute("aria-pressed", "false");
-  if (!/blocked/.test(status.textContent)) status.textContent = MOBILE ? "Tap to talk again." : "Stopped. Press Start to listen again.";
+  mic.classList.remove("on"); mic.textContent = idleLabel(); mic.setAttribute("aria-pressed", "false");
+  if (!/blocked/.test(status.textContent)) status.textContent = tapMode() ? "Tap to talk again." : "Stopped. Press Start to listen again.";
 }
 
 if (!SR) {
   mic.disabled = true;
   status.textContent = "This browser can't do speech recognition. Please open this page in Chrome or Edge.";
 }
-if (MOBILE && SR) {
-  mic.textContent = IDLE_LABEL;
+if (PHONE && SR) {
+  mic.textContent = idleLabel();
   status.textContent = "Tap the button, allow the microphone, then speak your question.";
+}
+if (PHONE) {
+  $("#handsRow").hidden = false;
+  $("#hands").onchange = () => {
+    stopMo(); mic.textContent = idleLabel();
+    status.textContent = tapMode() ? "Tap the button, then speak." : "Press Start, then say “Hey Mo”. Keep the screen on.";
+  };
 }
 mic.onclick = () => on ? stopMo() : startMo();
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
