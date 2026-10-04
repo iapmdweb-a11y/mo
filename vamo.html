@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VAMo, voice assistant</title>
+<style>
+:root{--bg:#e8eff2;--panel:#fff;--ink:#14262e;--mute:#5b6f78;--line:#cfdbe0;--acc:#1b6b7a;--hot:#c93c27}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1b20;--panel:#172830;--ink:#e6f0f3;--mute:#8fa6af;--line:#274049;--acc:#4fb3c4;--hot:#ff7a5f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Trebuchet MS","Segoe UI",system-ui,sans-serif;display:flex;justify-content:center;padding:28px 16px}
+main{width:100%;max-width:620px}
+h1{font-size:2.6rem;margin:0;letter-spacing:-.03em}
+.sub{color:var(--mute);margin:.2rem 0 1.6rem}
+.stage{display:flex;align-items:center;gap:22px;margin-bottom:1.6rem}
+#mic{flex:none;width:124px;height:124px;border-radius:50%;border:0;background:var(--acc);color:#fff;font:700 1.05rem "Trebuchet MS","Segoe UI",sans-serif;cursor:pointer}
+#mic:focus-visible,button:focus-visible,textarea:focus-visible{outline:3px solid var(--hot);outline-offset:3px}
+#mic.on{background:var(--hot);animation:ring 1.6s ease-out infinite}
+@keyframes ring{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--hot) 55%,transparent)}100%{box-shadow:0 0 0 30px transparent}}
+@media(prefers-reduced-motion:reduce){#mic.on{animation:none}}
+#status{margin:0;color:var(--mute)}
+#log{list-style:none;margin:0 0 1.4rem;padding:0;display:flex;flex-direction:column;gap:8px;min-height:60px}
+#log li{max-width:88%;padding:9px 14px;border-radius:14px;background:var(--panel);border:1px solid var(--line)}
+#log li.you{align-self:flex-end;background:var(--acc);border-color:var(--acc);color:#fff}
+#log li.dim{align-self:flex-end;background:none;border-style:dashed;color:var(--mute);font-size:.9rem}
+#log a{color:inherit;font-weight:700}
+h2{font-size:1.1rem;margin:1.6rem 0 .5rem}
+textarea{width:100%;min-height:130px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font:inherit;resize:vertical}
+.row{display:flex;gap:8px;margin-top:8px}
+.row button{padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;cursor:pointer}
+ul.help{margin:0;padding-left:1.2rem}
+.note{color:var(--mute);font-size:.88rem;margin-top:1.6rem}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.dev{padding:8px 16px;border-radius:999px;border:1px solid var(--acc);background:none;color:var(--acc);font:inherit;font-weight:700;cursor:pointer}
+dialog{width:min(340px,92vw);padding:26px 22px;border:1px solid var(--line);border-radius:16px;background:var(--panel);color:var(--ink);text-align:center}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+dialog h2{margin:1rem 0 .3rem;font-size:1.25rem}
+dialog p{margin:0 0 1rem;color:var(--mute)}
+.photo{width:180px;height:180px;object-fit:cover;object-position:top;border-radius:50%;border:3px solid var(--acc)}
+.logo{max-width:100%;max-height:84px;object-fit:contain;margin-bottom:1rem}
+#devClose{padding:8px 22px;border-radius:8px;border:0;background:var(--acc);color:#fff;font:inherit;cursor:pointer}
+#devClose:focus-visible,.dev:focus-visible{outline:3px solid var(--hot);outline-offset:3px}
+</style>
+</head>
+<body>
+<main>
+<div class="top"><h1>VAMo</h1><button id="devBtn" class="dev">Developer</button></div>
+<p class="sub">A voice assistant that runs in your browser. Say “Hey Mo” and then ask.</p>
+
+<div class="stage">
+  <button id="mic" aria-pressed="false">Start</button>
+  <p id="status">Press Start, allow the microphone, then say “Hey Mo”.</p>
+</div>
+
+<ol id="log" aria-live="polite"></ol>
+
+<h2>Dictation</h2>
+<textarea id="dict" placeholder="Say “Hey Mo, start dictation”. What you say is typed here. Say “new line” for a line break and “stop dictation” to finish."></textarea>
+<div class="row"><button id="copy">Copy text</button><button id="clear">Clear</button></div>
+
+<h2>Try saying</h2>
+<ul class="help">
+  <li>Hey Mo, what is adenocarcinoma</li>
+  <li>Hey Mo, set a timer for 5 minutes</li>
+  <li>Hey Mo, what time is it</li>
+  <li>Hey Mo, search for weather in Ipoh</li>
+  <li>Hey Mo, open YouTube</li>
+  <li>Hey Mo, tell me a joke</li>
+  <li>Hey Mo, start dictation</li>
+</ul>
+
+<p class="note">Works in Chrome and Edge. Your browser’s speech service turns your voice into text (Chrome sends the audio to Google), so don’t dictate patient names or other identifying details. Definitions are brief general information, not clinical advice.</p>
+</main>
+
+<dialog id="devDlg" aria-labelledby="devName">
+  <img class="photo" src="https://cdn1.artcltn.com/storage/25635/a233962a-ffe4-4e35-a0f2-86c48caa4ff2/kadir.png?w=1080" alt="Portrait of Dr. Abdul Kadir Rifaei" onerror="this.style.display='none'">
+  <h2 id="devName">Dr. Abdul Kadir Rifaei</h2>
+  <p>Pakar Patologi UD15<br>Hospital Teluk Intan, Malaysia</p>
+  <img class="logo" src="https://cdn1.artcltn.com/storage/25635/a233962a-ffe4-4e35-a0f2-86c48caa4ff2/logo_hospital_teluk_intan.png?w=1080" alt="Hospital Teluk Intan logo" onerror="this.style.display='none'">
+  <button id="devClose">Close</button>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const log = $("#log"), mic = $("#mic"), status = $("#status"), dict = $("#dict");
+let rec, on = false, muted = false, dictating = false, awaiting = false, awaitTimer;
+
+const SITES = {youtube:"https://www.youtube.com", gmail:"https://mail.google.com", google:"https://www.google.com", pubmed:"https://pubmed.ncbi.nlm.nih.gov"};
+const FIXES = {"adeno carcinoma":"adenocarcinoma","aden o carcinoma":"adenocarcinoma","immuno histochemistry":"immunohistochemistry","meta stasis":"metastasis"};
+const NUM = {a:1,an:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,fifteen:15,twenty:20,thirty:30,forty:40,fifty:50,sixty:60};
+const STOPD = ["stop dictation","stop dictating","end dictation","dictation off"];
+const WAKE = /^(?:hey|hay|hi|ok|okay)\s+(?:mo|moe|mow)\b\s*(.*)$/;
+const JOKES = [
+  "Why don't scientists trust atoms? Because they make up everything.",
+  "Why did the scarecrow win an award? Because he was outstanding in his field.",
+  "What do you call a fake noodle? An impasta.",
+  "I would tell you a chemistry joke, but I know I wouldn't get a reaction."];
+
+// First match wins, so longer phrases go above shorter ones.
+const ANSWERS = [
+  ["who are you","I'm VAMo, your voice assistant. You can call me Mo."],
+  ["your name","My name is VAMo. You can call me Mo."],
+  ["how are you",["I'm doing well, thank you.","All systems running smoothly."]],
+  ["what can you do","I can answer questions, set timers, tell the time and date, search the web, open some websites, define medical terms, tell jokes, and type what you dictate."],
+  ["thank you",["You're welcome.","Happy to help."]],
+  ["thanks",["You're welcome.","Happy to help."]],
+  ["hello",["Hello! How can I help?","Hi there."]],
+  ["good morning","Good morning! How can I help?"],
+  ["good afternoon","Good afternoon! How can I help?"],
+  ["good evening","Good evening! How can I help?"],
+  ["joke",JOKES],
+  ["squamous cell carcinoma","Squamous cell carcinoma is a cancer of the flat, scale-like cells that line the skin and many organs, including the lungs, throat and cervix."],
+  ["lymphovascular invasion","Lymphovascular invasion means cancer cells have entered the lymph vessels or blood vessels near the tumor, which can raise the chance of spread."],
+  ["adenocarcinoma","Adenocarcinoma is a cancer that starts in gland cells, which make mucus or other fluids. It can occur in organs such as the lung, colon, breast, prostate and pancreas."],
+  ["carcinoma","A carcinoma is a cancer that begins in epithelial cells, which line the skin and the surfaces of organs."],
+  ["metastasis","Metastasis is the spread of cancer cells from where they started to other parts of the body."],
+  ["immunohistochemistry","Immunohistochemistry uses antibodies to detect specific proteins in tissue samples. It helps pathologists identify the type of disease."],
+  ["biopsy","A biopsy is a procedure that removes a small sample of tissue so it can be examined under a microscope."],
+  ["histology","Histology is the study of tissues and cells under a microscope."],
+  ["neoplasm","A neoplasm is an abnormal growth of cells that forms a mass or tumor. It can be benign or malignant."],
+  ["malignant","Malignant means cancerous. The cells can invade nearby tissue and spread to other parts of the body."],
+  ["benign","Benign means not cancerous. The growth does not invade nearby tissue or spread."],
+  ["staging","Cancer staging describes how large a tumor is and how far it has spread."]
+];
+
+const clean = t => t.toLowerCase().replace(/[^a-z0-9' ]/g, "").replace(/\s+/g, " ").trim();
+const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const has = (t, p) => new RegExp("\\b" + esc(p) + "s?\\b").test(t);
+const fix = t => Object.entries(FIXES).reduce((s, [w, r]) => s.replace(new RegExp("\\b" + esc(w) + "\\b", "gi"), r), t);
+const pick = a => Array.isArray(a) ? a[Math.floor(Math.random() * a.length)] : a;
+
+function add(cls, text, link) {
+  const li = document.createElement("li");
+  li.className = cls;
+  li.textContent = text;
+  if (link) {
+    li.append(" ");
+    const a = document.createElement("a");
+    a.href = link.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = link.text;
+    li.append(a);
+  }
+  log.append(li);
+  while (log.children.length > 40) log.firstChild.remove();
+  li.scrollIntoView({block: "nearest"});
+}
+
+function speak(t) {
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  muted = true;                       // don't listen to Mo's own voice
+  const u = new SpeechSynthesisUtterance(t);
+  u.lang = "en-US";
+  u.onend = u.onerror = () => setTimeout(() => muted = false, 500);
+  speechSynthesis.speak(u);
+}
+function say(t, link) { add("mo", "VAMo: " + t, link); speak(t); }
+
+function openUrl(name, url) {
+  window.open(url, "_blank");        // may be blocked by the browser, so a link is always shown too
+  say("Opening " + name + ".", {url, text: "Open " + name});
+}
+
+function parseTimer(t) {
+  const m = t.match(/(\w+)\s+(second|minute|hour)s?/);
+  if (!m) return null;
+  const n = /^\d+$/.test(m[1]) ? +m[1] : NUM[m[1]];
+  if (!n) return null;
+  const mult = {second: 1, minute: 60, hour: 3600}[m[2]];
+  return {ms: n * mult * 1000, label: n + " " + m[2] + (n === 1 ? "" : "s")};
+}
+
+function handle(cmd) {
+  const t = fix(clean(cmd));
+  if (/^(stop|exit|quit|goodbye|stop listening)$/.test(t)) { say("Goodbye."); stopMo(); return; }
+  if (STOPD.includes(t)) { say("Dictation is already off."); return; }
+  if (/dictat/.test(t) && t.split(" ").length <= 4) {
+    dictating = true; dict.focus();
+    say("Dictation on. Say stop dictation when you are done."); return;
+  }
+  if (/timer/.test(t)) {
+    const r = parseTimer(t);
+    if (!r) { say("How long should the timer be?"); return; }
+    setTimeout(() => say("Your " + r.label + " timer is done."), r.ms);
+    say("Timer set for " + r.label + "."); return;
+  }
+  if (/what time|the time/.test(t)) {
+    say("It's " + new Date().toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}) + "."); return;
+  }
+  if (/\bdate\b|what day/.test(t)) {
+    say("Today is " + new Date().toLocaleDateString([], {weekday: "long", day: "numeric", month: "long", year: "numeric"}) + "."); return;
+  }
+  const s = t.match(/^(?:search for|search|google|look up)\s+(.+)/);
+  if (s) { openUrl("results for " + s[1], "https://www.google.com/search?q=" + encodeURIComponent(s[1])); return; }
+  for (const [p, a] of ANSWERS) if (has(t, p)) { say(pick(a)); return; }
+
+  const verb = /^(open|launch|start|run)\b/.test(t);
+  if (verb || t.split(" ").length <= 3) {
+    for (const [n, u] of Object.entries(SITES)) if (t.includes(n)) { openUrl(n, u); return; }
+    if (verb) {
+      say(/notepad|chrome|word|excel|calculator|paint|edge/.test(t)
+        ? "A web page can't open programs on your computer. I can open websites, though."
+        : "I don't know that website yet.");
+      return;
+    }
+  }
+  say("Sorry, I don't know that one yet. You can say search for, followed by your question.");
+}
+
+function onText(raw) {
+  const text = raw.trim();
+  if (!text) return;
+  const m = clean(text).match(WAKE);
+
+  if (dictating) {
+    const cmd = m ? m[1] : clean(text);
+    if (STOPD.includes(cmd)) { dictating = false; say("Dictation off."); return; }
+    if (m && !m[1]) return;
+    if (cmd === "new line") { dict.value += "\n"; return; }
+    dict.value += fix(text) + " ";
+    return;
+  }
+  if (m) {
+    add("you", text);
+    if (m[1]) { handle(m[1]); return; }
+    awaiting = true; clearTimeout(awaitTimer); awaitTimer = setTimeout(() => awaiting = false, 10000);
+    say("Yes?"); return;
+  }
+  if (awaiting) { awaiting = false; add("you", text); handle(text); return; }
+  add("dim", text + " (ignored: say “Hey Mo” first)");
+}
+
+function startMo() {
+  rec = new SR();
+  rec.lang = "en-US"; rec.continuous = true; rec.interimResults = false;
+  rec.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++)
+      if (e.results[i].isFinal && !muted) onText(e.results[i][0].transcript);
+  };
+  rec.onend = () => { if (on) try { rec.start(); } catch (_) {} };
+  rec.onerror = e => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      stopMo(); status.textContent = "The microphone is blocked. Allow it in the address bar, then press Start.";
+    }
+  };
+  rec.start();
+  on = true;
+  mic.classList.add("on"); mic.textContent = "Stop"; mic.setAttribute("aria-pressed", "true");
+  status.textContent = "Listening. Say “Hey Mo”.";
+  add("mo", "VAMo: VAMo is ready.");
+}
+
+function stopMo() {
+  on = false; dictating = false; awaiting = false;
+  if (rec) try { rec.stop(); } catch (_) {}
+  mic.classList.remove("on"); mic.textContent = "Start"; mic.setAttribute("aria-pressed", "false");
+  if (!/blocked/.test(status.textContent)) status.textContent = "Stopped. Press Start to listen again.";
+}
+
+if (!SR) {
+  mic.disabled = true;
+  status.textContent = "This browser can't do speech recognition. Please open this page in Chrome or Edge.";
+}
+mic.onclick = () => on ? stopMo() : startMo();
+$("#copy").onclick = () => navigator.clipboard.writeText(dict.value);
+$("#clear").onclick = () => dict.value = "";
+const devDlg = $("#devDlg");
+$("#devBtn").onclick = () => devDlg.showModal();
+$("#devClose").onclick = () => devDlg.close();
+devDlg.onclick = e => { if (e.target === devDlg) devDlg.close(); };
+</script>
+</body>
+</html>
