@@ -32,8 +32,9 @@ textarea{width:100%;min-height:130px;padding:12px;border:1px solid var(--line);b
 .row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .row button{padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;cursor:pointer}
 ul.help{margin:0;padding-left:1.2rem}
-#askBox{flex:1;min-width:170px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit}
+#askBox,#voiceSel{flex:1;min-width:170px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit}
 #bookInfo{color:var(--mute);margin:.5rem 0}
+.spd{display:flex;align-items:center;gap:6px;color:var(--mute)}
 #viewer{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
 .vbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
 .vbar button{padding:6px 14px;border-radius:8px;border:1px solid var(--line);background:none;color:var(--ink);font:inherit;cursor:pointer}
@@ -70,6 +71,9 @@ dialog p{margin:0 0 1rem;color:var(--mute)}
 <label class="opt" id="handsRow" hidden><input type="checkbox" id="hands"> Hands-free: listen for “Hey Mo” (experimental, keep the screen on)</label>
 <label class="opt"><input type="checkbox" id="boost"> Medical boost (on-device, experimental, Chrome only) <select id="boostLevel" aria-label="Boost strength"><option value="1">gentle</option><option value="2">medium</option><option value="4">strong</option></select></label>
 <ol id="log" aria-live="polite"></ol>
+
+<h2>Voice</h2>
+<div class="row"><select id="voiceSel" aria-label="Choose a voice"></select><label class="spd">Speed <input type="range" id="rate" min="0.7" max="1.4" step="0.1" value="1"></label><button id="testVoice">Test voice</button></div>
 
 <h2>Dictation</h2>
 <textarea id="dict" placeholder="Say “Hey Mo, start dictation”. What you say is typed here. Say “new line” for a line break and “stop dictation” to finish."></textarea>
@@ -236,15 +240,35 @@ function add(cls, text, link) {
   li.scrollIntoView({block: "nearest"});
 }
 
+let voices = [];
+const saved = k => { try { return localStorage.getItem(k) || ""; } catch (_) { return ""; } };
+const save = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+
+function loadVoices() {                                // the voices installed on this device
+  voices = speechSynthesis.getVoices();
+  const sel = $("#voiceSel"), want = saved("vamo-voice");
+  sel.replaceChildren(new Option("Device default voice", ""));
+  [...voices].sort((a, b) => (b.lang.startsWith("en") - a.lang.startsWith("en")) || a.name.localeCompare(b.name))
+    .forEach(v => sel.add(new Option(v.name + " (" + v.lang + ")", v.voiceURI)));
+  if ([...sel.options].some(o => o.value === want)) sel.value = want;
+}
+
+function newUtterance(text) {
+  const u = new SpeechSynthesisUtterance(text);
+  const v = voices.find(v => v.voiceURI === $("#voiceSel").value);
+  if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-US";
+  u.rate = +$("#rate").value || 1;
+  return u;
+}
+
 function speak(t) {
   if (!("speechSynthesis" in window)) return;
   speechSynthesis.cancel();
   muted = true;                       // don't listen to Mo's own voice
-  const u = new SpeechSynthesisUtterance(t);
-  u.lang = "en-US";
+  const u = newUtterance(t);
   const unmute = () => setTimeout(() => muted = false, 500);
   u.onend = u.onerror = unmute;
-  setTimeout(() => muted = false, 2000 + t.length * 100);   // safety net
+  setTimeout(() => muted = false, 2000 + t.length * 100 / (+$("#rate").value || 1));   // safety net
   speechSynthesis.speak(u);
 }
 function say(t, link) { add("mo", "VAMo: " + t, link); speak(t); }
@@ -284,7 +308,15 @@ function handle(cmd) {
     say("Today is " + new Date().toLocaleDateString([], {weekday: "long", day: "numeric", month: "long", year: "numeric"}) + "."); return;
   }
   let bm;
-  if ((bm = t.match(/read (?:from )?page (\d+)/))) { readFromPage(+bm[1]); return; }
+  if ((bm = t.match(/^(?:(read|start reading|go to|open|show|turn to|start) )?(?:from )?page (.+)$/)) && (pageNumber(bm[2]) || 0) >= 1) {
+    const n = pageNumber(bm[2]);
+    if (!book) { say("No book is loaded yet."); return; }
+    const last = pdfDoc ? pdfDoc.numPages : Math.max(...book.passages.map(p => p.page));
+    if (/^(read|start)/.test(bm[1] || "")) readFromPage(n);          // "read page 3": read aloud
+    else if (n > last) say("That page isn't in the book.");
+    else { showPage(n); say("Page " + n + "."); }                    // "go to page 3": just show it
+    return;
+  }
   if (/^(?:read (?:the )?book|read aloud|start reading|continue reading|resume reading)/.test(t)) { readFrom(/continue|resume/.test(t) ? readIdx : 0); return; }
   if ((bm = t.match(/(?:what does the book say about|search the book for|ask the book(?: about)?|find in the book|according to the book)\s+(.+)/))) {
     if (!answerFromBook(bm[1], true)) say("I couldn't find that in the book.");
@@ -336,8 +368,24 @@ function onText(raw) {
 if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 const STOP = new Set("a an the of to in on for and or is are was were be been what whats does do did how why when which who about with from by at as it its this that these those say says said book tell me explain please".split(" "));
 const tok = t => (t.toLowerCase().match(/[a-z0-9]+/g) || []).filter(w => !STOP.has(w)).map(w => w.length > 4 ? w.replace(/(ing|ed|es|s|e|ion)$/, "") : w);
-let book = null, reading = false, readIdx = 0;
+let book = null, reading = false, readIdx = 0, readToken = 0;
 const bookInfo = $("#bookInfo");
+const UNITS = {zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19};
+const TENS = {twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+function pageNumber(s) {                               // "3", "three", "twenty three", "one hundred and five"
+  s = s.trim();
+  if (/^\d+$/.test(s)) return +s;
+  let total = 0, found = false;
+  for (const w of s.split(/[\s-]+/)) {
+    if (w === "and") continue;
+    if (Object.hasOwn(UNITS, w)) total += UNITS[w];
+    else if (Object.hasOwn(TENS, w)) total += TENS[w];
+    else if (w === "hundred") total = (total || 1) * 100;
+    else return null;
+    found = true;
+  }
+  return found ? total : null;
+}
 const viewer = $("#viewer"), pgLabel = $("#pgLabel"), pgText = $("#pgText"), pgCanvas = $("#pgCanvas");
 let pdfDoc = null, curPage = 1, renderTask = null, shown = 0;
 
@@ -346,6 +394,8 @@ async function showPage(n, hl) {                      // shows the page picture 
   const total = pdfDoc ? pdfDoc.numPages : Math.max(...book.passages.map(p => p.page));
   n = Math.min(Math.max(1, n), total);
   curPage = n;
+  const at = book.passages.findIndex(p => p.page === n && (!hl || p.text === hl));
+  readIdx = at >= 0 ? at : Math.max(0, book.passages.findIndex(p => p.page > n));   // reading starts from what you see
   viewer.hidden = false;
   pgLabel.textContent = "Page " + n + " of " + total;
   pgText.replaceChildren(...book.passages.filter(p => p.page === n).map(p => {
@@ -368,8 +418,14 @@ async function showPage(n, hl) {                      // shows the page picture 
     shown = n;
   } catch (_) {}
 }
-$("#prevPg").onclick = () => showPage(curPage - 1);
-$("#nextPg").onclick = () => showPage(curPage + 1);
+const turnPage = d => {
+  const wasReading = reading;
+  if (wasReading) { reading = false; readToken++; speechSynthesis.cancel(); }
+  showPage(curPage + d);
+  if (wasReading) readFrom(readIdx);
+};
+$("#prevPg").onclick = () => turnPage(-1);
+$("#nextPg").onclick = () => turnPage(1);
 
 function chunkPage(text, page) {                      // cut a page into passages of about 70 words
   const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean), out = [];
@@ -422,7 +478,7 @@ function answerFromBook(q, explicit) {
 
 function readFrom(i) {
   if (!book) { say("No book is loaded yet. Choose a file in the Book reader section."); return; }
-  speechSynthesis.cancel();
+  speechSynthesis.cancel(); readToken++;
   reading = true; readIdx = i >= book.passages.length ? 0 : i;
   viewer.scrollIntoView({behavior: "smooth", block: "start"});
   setTimeout(readStep, 150);
@@ -433,14 +489,14 @@ function readStep() {
   status.textContent = "Reading page " + p.page + "…";
   showPage(p.page, p.text);
   muted = true;                                        // don't listen to the book being read
-  const u = new SpeechSynthesisUtterance(p.text);
-  u.lang = "en-US";
-  u.onend = () => { readIdx++; readStep(); };
-  u.onerror = () => { reading = false; muted = false; };
+  const id = ++readToken;
+  const u = newUtterance(p.text);
+  u.onend = () => { if (id !== readToken) return; readIdx++; readStep(); };
+  u.onerror = () => { if (id !== readToken) return; reading = false; muted = false; };
   speechSynthesis.speak(u);
 }
 function stopReading() {
-  reading = false; speechSynthesis.cancel(); muted = false;
+  reading = false; readToken++; speechSynthesis.cancel(); muted = false;
   status.textContent = on ? listenMsg() : "Press Start to listen.";
 }
 function readFromPage(n) {
@@ -581,6 +637,11 @@ mic.onclick = () => on ? stopMo() : startMo();
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
 $("#copy").onclick = () => navigator.clipboard.writeText(dict.value);
 $("#clear").onclick = () => dict.value = "";
+if ("speechSynthesis" in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+$("#rate").value = saved("vamo-rate") || 1;
+$("#voiceSel").onchange = e => { save("vamo-voice", e.target.value); speak("Hello, I am VAMo. This is how I sound."); };
+$("#rate").onchange = e => { save("vamo-rate", e.target.value); speak("This is my speaking speed."); };
+$("#testVoice").onclick = () => speak("Hello, I am VAMo. This is how I sound.");
 const devDlg = $("#devDlg");
 $("#devBtn").onclick = () => devDlg.showModal();
 $("#devClose").onclick = () => devDlg.close();
