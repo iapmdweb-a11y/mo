@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VAMo, voice assistant</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1b6b7a">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#e8eff2;--panel:#fff;--ink:#14262e;--mute:#5b6f78;--line:#cfdbe0;--acc:#1b6b7a;--hot:#c93c27}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1b20;--panel:#172830;--ink:#e6f0f3;--mute:#8fa6af;--line:#274049;--acc:#4fb3c4;--hot:#ff7a5f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Trebuchet MS","Segoe UI",system-ui,sans-serif;display:flex;justify-content:center;padding:28px 16px}
+main{width:100%;max-width:620px}
+.banner{display:block;width:100%;height:auto;aspect-ratio:1594/987;object-fit:contain;border-radius:16px;background:#fff}
+h1{font-size:2.6rem;margin:0;letter-spacing:-.03em}
+.devRow{display:flex;justify-content:flex-end;margin:.6rem 0 .4rem}
+.sub{color:var(--mute);margin:.2rem 0 1.6rem}
+.stage{display:flex;align-items:center;gap:22px;margin-bottom:1.6rem}
+#mic{flex:none;width:124px;height:124px;border-radius:50%;border:0;background:var(--acc);color:#fff;font:700 1.05rem "Trebuchet MS","Segoe UI",sans-serif;cursor:pointer}
+#mic:focus-visible,button:focus-visible,textarea:focus-visible{outline:3px solid var(--hot);outline-offset:3px}
+#mic.on{background:var(--hot);animation:ring 1.6s ease-out infinite}
+@keyframes ring{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--hot) 55%,transparent)}100%{box-shadow:0 0 0 30px transparent}}
+@media(prefers-reduced-motion:reduce){#mic.on{animation:none}}
+#status{margin:0;color:var(--mute)}
+#log{list-style:none;margin:0 0 .6rem;padding:0;display:flex;flex-direction:column;gap:8px;min-height:60px}
+#log li{max-width:88%;padding:9px 14px;border-radius:14px;background:var(--panel);border:1px solid var(--line)}
+#log li.you{align-self:flex-end;background:var(--acc);border-color:var(--acc);color:#fff}
+#log li.dim{align-self:flex-end;background:none;border-style:dashed;color:var(--mute);font-size:.9rem}
+#log a{color:inherit;font-weight:700}
+h2{font-size:1.1rem;margin:1.6rem 0 .5rem}
+textarea{width:100%;min-height:130px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font:inherit;resize:vertical}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.row button{padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;cursor:pointer}
+ul.help{margin:0;padding-left:1.2rem}
+#askBox,#voiceSel{flex:1;min-width:170px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit}
+#bookInfo{color:var(--mute);margin:.5rem 0}
+.spd{display:flex;align-items:center;gap:6px;color:var(--mute)}
+#viewer{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.vbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.vbar button{padding:6px 14px;border-radius:8px;border:1px solid var(--line);background:none;color:var(--ink);font:inherit;cursor:pointer}
+#pgCanvas{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
+#pgText{margin:10px 0 0;max-height:220px;overflow:auto;line-height:1.6}
+#pgText .now{background:color-mix(in srgb,var(--acc) 30%,transparent);border-radius:3px}
+.note{color:var(--mute);font-size:.88rem;margin-top:1.6rem}
+.opt[hidden]{display:none}
+.opt{display:block;margin:-.6rem 0 1.2rem;color:var(--mute);font-size:.92rem}
+.dev{padding:8px 16px;border-radius:999px;border:1px solid var(--acc);background:none;color:var(--acc);font:inherit;font-weight:700;cursor:pointer}
+dialog{width:min(340px,92vw);padding:26px 22px;border:1px solid var(--line);border-radius:16px;background:var(--panel);color:var(--ink);text-align:center}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+dialog h2{margin:1rem 0 .3rem;font-size:1.25rem}
+dialog p{margin:0 0 1rem;color:var(--mute)}
+.photo{width:180px;height:180px;object-fit:cover;object-position:top;border-radius:50%;border:3px solid var(--acc)}
+.logo{max-width:100%;max-height:84px;object-fit:contain;margin-bottom:1rem}
+#devClose{padding:8px 22px;border-radius:8px;border:0;background:var(--acc);color:#fff;font:inherit;cursor:pointer}
+#devClose:focus-visible,.dev:focus-visible{outline:3px solid var(--hot);outline-offset:3px}
+@media(max-width:480px){body{padding:16px 12px}.banner{border-radius:12px}.stage{gap:14px}#mic{width:105px;height:105px}}
+</style>
+</head>
+<body>
+<main>
+<img class="banner" src="https://cdn1.artcltn.com/storage/25635/a233962a-ffe4-4e35-a0f2-86c48caa4ff2/chatgpt_image_oct_6_2026_08_41_12_pm.png?w=1080" alt="VAMo, your voice assistant" onerror="this.replaceWith(Object.assign(document.createElement('h1'),{textContent:'VAMo'}))">
+<div class="devRow"><button id="devBtn" class="dev">Developer</button></div>
+<p class="sub">A voice assistant that runs in your browser. Say “Hey Mo” and then ask.</p>
+
+<div class="stage">
+  <button id="mic" aria-pressed="false">Start</button>
+  <p id="status">Press Start, allow the microphone, then say “Hey Mo”.</p>
+</div>
+
+<label class="opt"><input type="checkbox" id="tapOnly"> Tap to talk (no “Hey Mo” needed)</label>
+<label class="opt" id="handsRow" hidden><input type="checkbox" id="hands"> Hands-free: listen for “Hey Mo” (experimental, keep the screen on)</label>
+<label class="opt"><input type="checkbox" id="boost"> Medical boost (on-device, experimental, Chrome only) <select id="boostLevel" aria-label="Boost strength"><option value="1">gentle</option><option value="2">medium</option><option value="4">strong</option></select></label>
+<ol id="log" aria-live="polite"></ol>
+<div class="row"><button id="clearLog">Clear conversation</button></div>
+
+<h2>Voice</h2>
+<div class="row"><select id="voiceSel" aria-label="Choose a voice"></select><label class="spd">Speed <input type="range" id="rate" min="0.7" max="1.4" step="0.1" value="1"></label><button id="testVoice">Test voice</button></div>
+
+<h2>Dictation</h2>
+<textarea id="dict" placeholder="Say “Hey Mo, start dictation”. What you say is typed here. Say “new line” for a line break and “stop dictation” to finish."></textarea>
+<div class="row"><button id="copy">Copy text</button><button id="clear">Clear</button></div>
+
+<h2>Book reader</h2>
+<input type="file" id="bookFile">
+<p id="bookInfo">No book loaded. Choose a PDF or text file you have the right to use (on a phone, pick it from Files, Downloads or Drive). It stays in your browser and is not uploaded.</p>
+<div class="row"><input id="askBox" type="text" placeholder="Ask the book, e.g. how is Ki-67 calculated"><button id="askBtn">Ask</button><button id="readBtn">Read aloud</button><button id="stopBtn">Stop reading</button><button id="removeBook">Remove book</button></div>
+<div id="viewer" hidden>
+  <div class="vbar"><button id="prevPg" aria-label="Previous page">‹ Prev</button><strong id="pgLabel"></strong><button id="nextPg" aria-label="Next page">Next ›</button></div>
+  <canvas id="pgCanvas" aria-label="The current book page"></canvas>
+  <p id="pgText"></p>
+</div>
+
+<h2>Try saying</h2>
+<ul class="help">
+  <li>Hey Mo, what is adenocarcinoma</li>
+  <li>Hey Mo, set a timer for 5 minutes</li>
+  <li>Hey Mo, what time is it</li>
+  <li>Hey Mo, search for weather in Ipoh</li>
+  <li>Hey Mo, open YouTube</li>
+  <li>Hey Mo, tell me a joke</li>
+  <li>Hey Mo, start dictation</li>
+  <li>Hey Mo, what does the book say about …</li>
+  <li>Hey Mo, read the book / read page 3</li>
+  <li>Hey Mo, remove the book / clear the conversation</li>
+</ul>
+
+<p class="note">Works in Chrome and Edge. Your browser’s speech service turns your voice into text (Chrome sends the audio to Google), so don’t dictate patient names or other identifying details. Definitions are brief general information, not clinical advice.</p>
+</main>
+
+<dialog id="devDlg" aria-labelledby="devName">
+  <img class="photo" src="https://cdn1.artcltn.com/storage/25635/a233962a-ffe4-4e35-a0f2-86c48caa4ff2/kadir.png?w=1080" alt="Portrait of Dr. Abdul Kadir Rifaei" onerror="this.style.display='none'">
+  <h2 id="devName">Dr. Abdul Kadir Rifaei</h2>
+  <p>Pakar Patologi UD15<br>Hospital Teluk Intan, Malaysia</p>
+  <img class="logo" src="https://cdn1.artcltn.com/storage/25635/a233962a-ffe4-4e35-a0f2-86c48caa4ff2/logo_hospital_teluk_intan.png?w=1080" alt="Hospital Teluk Intan logo" onerror="this.style.display='none'">
+  <button id="devClose">Close</button>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const PHONE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const tapMode = () => (PHONE && !$("#hands").checked) || $("#tapOnly").checked;
+const listenMsg = () => tapMode() ? "Listening. Speak now." : "Listening. Say “Hey Mo”.";
+const idleLabel = () => tapMode() ? "Tap to talk" : "Start";
+let lock = null;
+const log = $("#log"), mic = $("#mic"), status = $("#status"), dict = $("#dict");
+let rec, on = false, muted = false, dictating = false, awaiting = false, awaitTimer;
+
+const SITES = {youtube:"https://www.youtube.com", gmail:"https://mail.google.com", google:"https://www.google.com", pubmed:"https://pubmed.ncbi.nlm.nih.gov"};
+const FIXES = {
+  "ed do you know casinoma casino":"adenocarcinoma","ed do you know casinoma":"adenocarcinoma",
+  "adeno carcinoma":"adenocarcinoma","aden o carcinoma":"adenocarcinoma",
+  "casinoma":"carcinoma","carsinoma":"carcinoma","kasinoma":"carcinoma",
+  "immuno histochemistry":"immunohistochemistry","meta stasis":"metastasis"
+};
+const NUM = {a:1,an:1,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,fifteen:15,twenty:20,thirty:30,forty:40,fifty:50,sixty:60};
+const STOPD = ["stop dictation","stop dictating","end dictation","dictation off"];
+// Wider wake word: accepts common mis-hearings of "Hey Mo" and a short lead-in word.
+const WAKE = /^(?:(?:so|okay|ok|well|um|uh)\s+)?(?:(?:hey|hay|hei|hi|ok|okay|hello|a)\s*(?:mo|moe|mow|moh|mowe|mohr|mom|mum|mu|no|more|mole|mor|mall|mao|mou)s?)\b\s*(.*)$/;
+const JOKES = [
+  "Why don't scientists trust atoms? Because they make up everything.",
+  "Why did the scarecrow win an award? Because he was outstanding in his field.",
+  "What do you call a fake noodle? An impasta.",
+  "I would tell you a chemistry joke, but I know I wouldn't get a reaction."];
+
+const ANSWERS = [
+  ["who are you","I'm VAMo, your voice assistant. You can call me Mo."],
+  ["your name","My name is VAMo. You can call me Mo."],
+  ["how are you",["I'm doing well, thank you.","All systems running smoothly."]],
+  ["what can you do","I can answer questions, set timers, tell the time and date, search the web, open some websites, define medical terms, tell jokes, and type what you dictate."],
+  ["thank you",["You're welcome.","Happy to help."]],
+  ["thanks",["You're welcome.","Happy to help."]],
+  ["hello",["Hello! How can I help?","Hi there."]],
+  ["good morning","Good morning! How can I help?"],
+  ["good afternoon","Good afternoon! How can I help?"],
+  ["good evening","Good evening! How can I help?"],
+  ["joke",JOKES],
+  ["squamous cell carcinoma","Squamous cell carcinoma is a cancer of the flat, scale-like cells that line the skin and many organs, including the lungs, throat and cervix."],
+  ["lymphovascular invasion","Lymphovascular invasion means cancer cells have entered the lymph vessels or blood vessels near the tumor, which can raise the chance of spread."],
+  ["adenocarcinoma","Adenocarcinoma is a cancer that starts in gland cells, which make mucus or other fluids. It can occur in organs such as the lung, colon, breast, prostate and pancreas."],
+  ["carcinoma","A carcinoma is a cancer that begins in epithelial cells, which line the skin and the surfaces of organs."],
+  ["metastasis","Metastasis is the spread of cancer cells from where they started to other parts of the body."],
+  ["immunohistochemistry","Immunohistochemistry uses antibodies to detect specific proteins in tissue samples. It helps pathologists identify the type of disease."],
+  ["biopsy","A biopsy is a procedure that removes a small sample of tissue so it can be examined under a microscope."],
+  ["histology","Histology is the study of tissues and cells under a microscope."],
+  ["neoplasm","A neoplasm is an abnormal growth of cells that forms a mass or tumor. It can be benign or malignant."],
+  ["malignant","Malignant means cancerous. The cells can invade nearby tissue and spread to other parts of the body."],
+  ["benign","Benign means not cancerous. The growth does not invade nearby tissue or spread."],
+  ["staging","Cancer staging describes how large a tumor is and how far it has spread."]
+];
+
+const clean = t => t.toLowerCase().replace(/[^a-z0-9' ]/g, "").replace(/\s+/g, " ").trim();
+const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const has = (t, p) => new RegExp("\\b" + esc(p) + "s?\\b").test(t);
+const MED_TERMS = ["adenocarcinoma","carcinoma","squamous cell carcinoma","metastasis","metastases","histology","histopathology","immunohistochemistry","immunostain","neoplasm","malignant","lymphovascular invasion","perineural invasion","dysplasia","hyperplasia","metaplasia","anaplasia","pleomorphism","hyperchromasia","desmoplasia","carcinoma in situ","ductal carcinoma in situ","invasive ductal carcinoma","adenoma","lymphoma","sarcoma","melanoma","glioma","necrosis","fibrosis","granuloma","cytology","mitotic figures","frozen section","resection margin","hematoxylin and eosin","haematoxylin and eosin"];
+const BOOST_TERMS = ["adenocarcinoma","squamous cell carcinoma","metastasis","immunohistochemistry","histopathology","lymphovascular invasion","perineural invasion","pleomorphism","hyperchromasia","desmoplasia"];
+const MED_INDEX = MED_TERMS.map(t => [t, t.replace(/ /g, ""), t.split(" ").length]);
+
+function lev(a, b) {
+  const d = Array.from({length: a.length + 1}, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+
+function medFix(text) {
+  const w = text.split(/\s+/), hits = [];
+  for (let i = 0; i < w.length; i++) {
+    for (const [term, key, n] of MED_INDEX) {
+      for (const k of [n + 2, n + 1, n, n - 1]) {
+        if (k < 1 || i + k > w.length) continue;
+        const cand = w.slice(i, i + k).join("").toLowerCase().replace(/[^a-z]/g, "");
+        if (cand.length < 7) continue;
+        if (k === 1 && (cand === key || cand === key + "s")) { hits.push({i, k, r: 1, keep: true}); continue; }
+        const r = 1 - lev(cand, key) / Math.max(cand.length, key.length);
+        if (r >= 0.85) hits.push({i, k, r, term});
+      }
+    }
+  }
+  hits.sort((x, y) => y.r - x.r || y.k - x.k);
+  const used = new Array(w.length).fill(false), pick = {};
+  for (const h of hits) {
+    if (used.slice(h.i, h.i + h.k).some(Boolean)) continue;
+    for (let j = h.i; j < h.i + h.k; j++) used[j] = true;
+    pick[h.i] = h;
+  }
+  const out = [];
+  for (let i = 0; i < w.length;) {
+    const h = pick[i];
+    if (!h || h.keep) { out.push(w[i]); i++; continue; }
+    const trail = (w[i + h.k - 1].match(/[^A-Za-z0-9']*$/) || [""])[0];
+    out.push(h.term + trail); i += h.k;
+  }
+  return out.join(" ");
+}
+
+const fix = t => medFix(Object.entries(FIXES).reduce((s, [w, r]) => s.replace(new RegExp("\\b" + esc(w) + "\\b", "gi"), r), t));
+const pick = a => Array.isArray(a) ? a[Math.floor(Math.random() * a.length)] : a;
+
+function add(cls, text, link) {
+  const li = document.createElement("li");
+  li.className = cls; li.textContent = text;
+  if (link) {
+    li.append(" ");
+    const a = document.createElement("a");
+    a.href = link.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = link.text;
+    li.append(a);
+  }
+  log.append(li);
+  while (log.children.length > 40) log.firstChild.remove();
+  li.scrollIntoView({block: "nearest"});
+}
+
+let voices = [];
+const saved = k => { try { return localStorage.getItem(k) || ""; } catch (_) { return ""; } };
+const save = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+
+function loadVoices() {
+  voices = speechSynthesis.getVoices();
+  const sel = $("#voiceSel"), want = saved("vamo-voice");
+  sel.replaceChildren(new Option("Device default voice", ""));
+  [...voices].sort((a, b) => (b.lang.startsWith("en") - a.lang.startsWith("en")) || a.name.localeCompare(b.name))
+    .forEach(v => sel.add(new Option(v.name + " (" + v.lang + ")", v.voiceURI)));
+  if ([...sel.options].some(o => o.value === want)) sel.value = want;
+}
+
+function newUtterance(text) {
+  const u = new SpeechSynthesisUtterance(text);
+  const v = voices.find(v => v.voiceURI === $("#voiceSel").value);
+  if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "en-US";
+  u.rate = +$("#rate").value || 1;
+  return u;
+}
+
+function speak(t) {
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  muted = true;
+  const u = newUtterance(t);
+  const unmute = () => setTimeout(() => muted = false, 500);
+  u.onend = u.onerror = unmute;
+  setTimeout(() => muted = false, 2000 + t.length * 100 / (+$("#rate").value || 1));
+  speechSynthesis.speak(u);
+}
+function say(t, link) { add("mo", "VAMo: " + t, link); speak(t); }
+
+function openUrl(name, url) {
+  window.open(url, "_blank");
+  say("Opening " + name + ".", {url, text: "Open " + name});
+}
+
+function parseTimer(t) {
+  const m = t.match(/(\w+)\s+(second|minute|hour)s?/);
+  if (!m) return null;
+  const n = /^\d+$/.test(m[1]) ? +m[1] : NUM[m[1]];
+  if (!n) return null;
+  const mult = {second: 1, minute: 60, hour: 3600}[m[2]];
+  return {ms: n * mult * 1000, label: n + " " + m[2] + (n === 1 ? "" : "s")};
+}
+
+function handle(cmd) {
+  const t = fix(clean(cmd));
+  if (/^(stop|exit|quit|goodbye|stop listening)$/.test(t)) { say("Goodbye."); stopMo(); return; }
+  if (STOPD.includes(t)) { say("Dictation is already off."); return; }
+  if (/^(clear|delete|erase) (the )?(conversation|chat|log|history)$/.test(t)) { clearLog(); return; }
+  if (/^(remove|close|unload|delete|clear) (the )?book$/.test(t)) { removeBook(); say("Book removed."); return; }
+  if (/dictat/.test(t) && t.split(" ").length <= 4) {
+    dictating = true; dict.focus();
+    say("Dictation on. Say stop dictation when you are done."); return;
+  }
+  if (/timer/.test(t)) {
+    const r = parseTimer(t);
+    if (!r) { say("How long should the timer be?"); return; }
+    setTimeout(() => say("Your " + r.label + " timer is done."), r.ms);
+    say("Timer set for " + r.label + "."); return;
+  }
+  if (/what time|the time/.test(t)) {
+    say("It's " + new Date().toLocaleTimeString([], {hour: "numeric", minute: "2-digit"}) + "."); return;
+  }
+  if (/\bdate\b|what day/.test(t)) {
+    say("Today is " + new Date().toLocaleDateString([], {weekday: "long", day: "numeric", month: "long", year: "numeric"}) + "."); return;
+  }
+  let bm;
+  if ((bm = t.match(/^(?:(read|start reading|go to|open|show|turn to|start) )?(?:from )?page (.+)$/)) && (pageNumber(bm[2]) || 0) >= 1) {
+    const n = pageNumber(bm[2]);
+    if (!book) { say("No book is loaded yet."); return; }
+    const last = pdfDoc ? pdfDoc.numPages : Math.max(...book.passages.map(p => p.page));
+    if (/^(read|start)/.test(bm[1] || "")) readFromPage(n);
+    else if (n > last) say("That page isn't in the book.");
+    else { showPage(n); say("Page " + n + "."); }
+    return;
+  }
+  if (/^(?:read (?:the )?book|read aloud|start reading|continue reading|resume reading)/.test(t)) { readFrom(/continue|resume/.test(t) ? readIdx : 0); return; }
+  if ((bm = t.match(/(?:what does the book say about|search the book for|ask the book(?: about)?|find in the book|according to the book)\s+(.+)/))) {
+    if (!answerFromBook(bm[1], true)) say("I couldn't find that in the book.");
+    return;
+  }
+  const s = t.match(/^(?:search for|search|google|look up)\s+(.+)/);
+  if (s) { openUrl("results for " + s[1], "https://www.google.com/search?q=" + encodeURIComponent(s[1])); return; }
+  for (const [p, a] of ANSWERS) if (has(t, p)) { say(pick(a)); return; }
+
+  const verb = /^(open|launch|start|run)\b/.test(t);
+  if (verb || t.split(" ").length <= 3) {
+    for (const [n, u] of Object.entries(SITES)) if (t.includes(n)) { openUrl(n, u); return; }
+    if (verb) {
+      say(/notepad|chrome|word|excel|calculator|paint|edge/.test(t)
+        ? "A web page can't open programs on your computer. I can open websites, though."
+        : "I don't know that website yet.");
+      return;
+    }
+  }
+  if (answerFromBook(t, false)) return;
+  say("Sorry, I don't know that one yet. You can say search for, followed by your question.");
+}
+
+function onText(raw) {
+  const text = raw.trim();
+  if (!text) return;
+  const m = clean(text).match(WAKE);
+
+  if (dictating) {
+    const cmd = m ? m[1] : clean(text);
+    if (STOPD.includes(cmd)) { dictating = false; say("Dictation off."); return; }
+    if (m && !m[1]) return;
+    if (cmd === "new line") { dict.value += "\n"; return; }
+    dict.value += fix(text) + " ";
+    return;
+  }
+  if (m) {
+    add("you", text);
+    if (m[1]) { handle(m[1]); return; }
+    awaiting = true; clearTimeout(awaitTimer); awaitTimer = setTimeout(() => awaiting = false, 10000);
+    say("Yes?"); return;
+  }
+  if (awaiting) { awaiting = false; add("you", text); handle(text); return; }
+  if (tapMode()) { add("you", text); handle(text); return; }
+  add("dim", text + " (ignored: say “Hey Mo” first)");
+}
+
+// ---- Book reader ----
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const STOP = new Set("a an the of to in on for and or is are was were be been what whats does do did how why when which who about with from by at as it its this that these those say says said book tell me explain please".split(" "));
+const tok = t => (t.toLowerCase().match(/[a-z0-9]+/g) || []).filter(w => !STOP.has(w)).map(w => w.length > 4 ? w.replace(/(ing|ed|es|s|e|ion)$/, "") : w);
+let book = null, reading = false, readIdx = 0, readToken = 0;
+const bookInfo = $("#bookInfo");
+const NO_BOOK = bookInfo.textContent;
+const UNITS = {zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19};
+const TENS = {twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+function pageNumber(s) {
+  s = s.trim();
+  if (/^\d+$/.test(s)) return +s;
+  let total = 0, found = false;
+  for (const w of s.split(/[\s-]+/)) {
+    if (w === "and") continue;
+    if (Object.hasOwn(UNITS, w)) total += UNITS[w];
+    else if (Object.hasOwn(TENS, w)) total += TENS[w];
+    else if (w === "hundred") total = (total || 1) * 100;
+    else return null;
+    found = true;
+  }
+  return found ? total : null;
+}
+const viewer = $("#viewer"), pgLabel = $("#pgLabel"), pgText = $("#pgText"), pgCanvas = $("#pgCanvas");
+let pdfDoc = null, curPage = 1, renderTask = null, shown = 0;
+
+async function showPage(n, hl) {
+  if (!book) return;
+  const total = pdfDoc ? pdfDoc.numPages : Math.max(...book.passages.map(p => p.page));
+  n = Math.min(Math.max(1, n), total);
+  curPage = n;
+  const at = book.passages.findIndex(p => p.page === n && (!hl || p.text === hl));
+  readIdx = at >= 0 ? at : Math.max(0, book.passages.findIndex(p => p.page > n));
+  viewer.hidden = false;
+  pgLabel.textContent = "Page " + n + " of " + total;
+  pgText.replaceChildren(...book.passages.filter(p => p.page === n).map(p => {
+    const span = document.createElement("span");
+    span.textContent = p.text + " ";
+    if (hl && p.text === hl) span.className = "now";
+    return span;
+  }));
+  pgCanvas.hidden = !pdfDoc;
+  if (!pdfDoc || shown === n) return;
+  try {
+    const pg = await pdfDoc.getPage(n);
+    if (n !== curPage) return;
+    const base = pg.getViewport({scale: 1});
+    const vp = pg.getViewport({scale: (viewer.clientWidth || 600) / base.width * (window.devicePixelRatio || 1)});
+    if (renderTask) { try { renderTask.cancel(); } catch (_) {} }
+    pgCanvas.width = vp.width; pgCanvas.height = vp.height;
+    renderTask = pg.render({canvasContext: pgCanvas.getContext("2d"), viewport: vp});
+    await renderTask.promise;
+    shown = n;
+  } catch (_) {}
+}
+const turnPage = d => {
+  const wasReading = reading;
+  if (wasReading) { reading = false; readToken++; speechSynthesis.cancel(); }
+  showPage(curPage + d);
+  if (wasReading) readFrom(readIdx);
+};
+$("#prevPg").onclick = () => turnPage(-1);
+$("#nextPg").onclick = () => turnPage(1);
+
+function chunkPage(text, page) {
+  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean), out = [];
+  for (let i = 0; i < words.length;) {
+    let end = Math.min(i + 70, words.length);
+    if (end < words.length) for (let j = end - 1; j > i + 40; j--) if (/[.!?]$/.test(words[j])) { end = j + 1; break; }
+    out.push({page, text: words.slice(i, end).join(" ")});
+    i = end;
+  }
+  return out;
+}
+
+function setBook(name, passages) {
+  book = {name, passages, df: Object.create(null)};
+  passages.forEach(p => {
+    p.tf = Object.create(null);
+    tok(p.text).forEach(w => p.tf[w] = (p.tf[w] || 0) + 1);
+    Object.keys(p.tf).forEach(w => book.df[w] = (book.df[w] || 0) + 1);
+  });
+  readIdx = 0; shown = 0;
+  showPage(passages[0].page);
+  const pages = new Set(passages.map(p => p.page)).size;
+  bookInfo.textContent = name + ": " + pages + " page(s), " + passages.length + " passages. Try “Hey Mo, what does the book say about …”.";
+  try { localStorage.setItem("vamo-book", JSON.stringify({name, passages: passages.map(p => ({page: p.page, text: p.text}))})); } catch (_) {}
+}
+
+function searchBook(q, share) {
+  const qt = [...new Set(tok(q))];
+  if (!qt.length) return [];
+  const N = book.passages.length;
+  return book.passages.map(p => {
+    let score = 0, hit = 0;
+    for (const w of qt) if (p.tf[w]) { hit++; score += (1 + Math.log(p.tf[w])) * Math.log(1 + N / book.df[w]); }
+    return {page: p.page, text: p.text, hit, score: score * hit / qt.length};
+  }).filter(p => p.hit >= Math.max(1, Math.ceil(qt.length * share)))
+    .sort((a, b) => b.score - a.score).slice(0, 3);
+}
+
+const shorten = (t, n) => t.length <= n ? t : t.slice(0, t.lastIndexOf(" ", n)) + "…";
+
+function answerFromBook(q, explicit) {
+  if (!book) { if (explicit) { say("No book is loaded yet. Choose a file in the Book reader section."); return true; } return false; }
+  const hits = searchBook(q, explicit ? 0 : 0.6);
+  if (!hits.length) return false;
+  showPage(hits[0].page, hits[0].text);
+  say("From the book, page " + hits[0].page + ": " + shorten(hits[0].text, 330));
+  hits.slice(1).forEach(h => add("mo", "Also on page " + h.page + ": " + shorten(h.text, 330)));
+  return true;
+}
+
+function readFrom(i) {
+  if (!book) { say("No book is loaded yet. Choose a file in the Book reader section."); return; }
+  speechSynthesis.cancel(); readToken++;
+  reading = true; readIdx = i >= book.passages.length ? 0 : i;
+  viewer.scrollIntoView({behavior: "smooth", block: "start"});
+  setTimeout(readStep, 150);
+}
+function readStep() {
+  if (!reading || readIdx >= book.passages.length) { stopReading(); return; }
+  const p = book.passages[readIdx];
+  status.textContent = "Reading page " + p.page + "…";
+  showPage(p.page, p.text);
+  muted = true;
+  const id = ++readToken;
+  const u = newUtterance(p.text);
+  u.onend = () => { if (id !== readToken) return; readIdx++; readStep(); };
+  u.onerror = () => { if (id !== readToken) return; reading = false; muted = false; };
+  speechSynthesis.speak(u);
+}
+function stopReading() {
+  reading = false; readToken++; speechSynthesis.cancel(); muted = false;
+  status.textContent = on ? listenMsg() : "Press Start to listen.";
+}
+function readFromPage(n) {
+  if (!book) { say("No book is loaded yet."); return; }
+  const i = book.passages.findIndex(p => p.page >= n);
+  if (i < 0) say("That page isn't in the book."); else readFrom(i);
+}
+
+function removeBook() {
+  stopReading();
+  if (renderTask) { try { renderTask.cancel(); } catch (_) {} renderTask = null; }
+  if (pdfDoc) { try { pdfDoc.destroy(); } catch (_) {} }
+  book = null; pdfDoc = null; shown = 0; readIdx = 0; curPage = 1;
+  pgCanvas.width = pgCanvas.height = 0;
+  pgText.replaceChildren(); pgLabel.textContent = "";
+  viewer.hidden = true;
+  $("#bookFile").value = ""; $("#askBox").value = "";
+  try { localStorage.removeItem("vamo-book"); } catch (_) {}
+  bookInfo.textContent = NO_BOOK;
+}
+function clearLog() { speechSynthesis.cancel(); muted = false; log.replaceChildren(); }
+
+async function readPdf(file) {
+  if (!window.pdfjsLib) throw new Error("the PDF reader library didn't load (check your internet connection)");
+  const pdf = await pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise, out = [];
+  pdfDoc = pdf;
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const tc = await (await pdf.getPage(n)).getTextContent();
+    out.push(...chunkPage(tc.items.map(i => i.str).join(" "), n));
+  }
+  return out;
+}
+$("#bookFile").onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (!/\.(pdf|txt|md)$/i.test(f.name)) { bookInfo.textContent = "Please choose a PDF or text file (.pdf, .txt or .md)."; return; }
+  bookInfo.textContent = "Reading " + f.name + "…";
+  pdfDoc = null; shown = 0;
+  try {
+    let ps;
+    if (/\.pdf$/i.test(f.name)) ps = await readPdf(f);
+    else { ps = chunkPage(await f.text(), 1); ps.forEach((p, i) => p.page = Math.floor(i / 5) + 1); }
+    if (!ps.length) throw new Error("no readable text found. A scanned book (pictures of pages) can't be read without text recognition");
+    setBook(f.name, ps);
+  } catch (err) { bookInfo.textContent = "Couldn't read that file: " + err.message; }
+};
+const askTyped = () => {
+  const q = $("#askBox").value.trim();
+  if (!q) return;
+  add("you", q);
+  if (!answerFromBook(q, true)) say("I couldn't find that in the book.");
+};
+$("#askBtn").onclick = askTyped;
+$("#askBox").onkeydown = e => { if (e.key === "Enter") askTyped(); };
+$("#readBtn").onclick = () => readFrom(readIdx);
+$("#stopBtn").onclick = stopReading;
+$("#removeBook").onclick = removeBook;
+$("#clearLog").onclick = clearLog;
+try { const sv = JSON.parse(localStorage.getItem("vamo-book") || "null"); if (sv) setBook(sv.name, sv.passages); } catch (_) {}
+// ---- end book reader ----
+
+async function makeRec() {
+  const r = new SR();
+  r.lang = "en-US"; r.continuous = !tapMode(); r.interimResults = true; r.maxAlternatives = 3;
+  if ($("#boost").checked) {
+    try {
+      if (!("SpeechRecognitionPhrase" in window) || !SR.available) throw 0;
+      const opt = {langs: ["en-US"], processLocally: true};
+      let st = await SR.available(opt);
+      if (st === "downloadable") {
+        status.textContent = "Downloading the on-device speech pack. Please wait...";
+        await SR.install(opt);
+        st = await SR.available(opt);
+      }
+      if (st !== "available") throw 0;
+      r.processLocally = true;
+      r.phrases = BOOST_TERMS.map(p => new SpeechRecognitionPhrase(p, +$("#boostLevel").value));
+    } catch (_) {
+      $("#boost").checked = false;
+      add("mo", "VAMo: The medical boost isn't available in this browser, so I'm using standard recognition.");
+      return makeRec();
+    }
+  }
+  return r;
+}
+
+async function startMo() {
+  if (!window.isSecureContext) {
+    status.textContent = "The microphone only works on a secure page (https://). Open this page from an https:// address.";
+    return;
+  }
+  rec = await makeRec();
+  rec.onaudiostart = () => { status.textContent = "Microphone is capturing audio…"; };
+  rec.onspeechstart = () => { status.textContent = "Hearing speech…"; };
+  rec.onnomatch = () => { status.textContent = "Heard sound but couldn't recognise words."; };
+  rec.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const res = e.results[i];
+      if (!res.isFinal) { if (!muted) status.textContent = "Hearing: " + res[0].transcript; continue; }
+      status.textContent = dictating ? "Dictating. Say “stop dictation” to finish." : listenMsg();
+      if (muted) continue;
+      const alts = Array.from(res, a => a.transcript);
+      onText(dictating ? alts[0] : (alts.find(a => WAKE.test(clean(a))) || alts[0]));
+    }
+  };
+  rec.onend = () => {
+    if (on && (!tapMode() || dictating)) { try { rec.start(); } catch (_) {} }
+    else if (on) stopMo();
+  };
+  rec.onerror = e => {
+    if (e.error === "phrases-not-supported" || e.error === "language-not-supported") {
+      $("#boost").checked = false; stopMo();
+      status.textContent = "The medical boost isn't supported here. Press Start to use standard recognition."; return;
+    }
+    const problems = {
+      "not-allowed": "The microphone is blocked. Allow it in the address bar, then press Start.",
+      "service-not-allowed": "The microphone is blocked. Allow it in the address bar, then press Start.",
+      "audio-capture": "No microphone was found. Plug one in, or pick it in the browser's site settings.",
+      "network": "The browser's speech service can't be reached. Check your internet connection. Chrome sends audio to Google, and some networks and browsers (such as Brave) block this."
+    };
+    if (problems[e.error]) { stopMo(); status.textContent = problems[e.error]; }
+    else if (e.error !== "no-speech" && e.error !== "aborted") status.textContent = "Speech error: " + e.error;
+  };
+  rec.start();
+  on = true;
+  mic.classList.add("on"); mic.textContent = "Stop"; mic.setAttribute("aria-pressed", "true");
+  status.textContent = listenMsg();
+  if (!tapMode()) add("mo", "VAMo: VAMo is ready.");
+  if (PHONE && !tapMode() && "wakeLock" in navigator) { try { lock = await navigator.wakeLock.request("screen"); } catch (_) {} }
+}
+
+function stopMo() {
+  if (lock) { lock.release().catch(() => {}); lock = null; }
+  on = false; dictating = false; awaiting = false;
+  if (rec) try { rec.stop(); } catch (_) {}
+  mic.classList.remove("on"); mic.textContent = idleLabel(); mic.setAttribute("aria-pressed", "false");
+  if (!/blocked/.test(status.textContent)) status.textContent = tapMode() ? "Tap to talk again." : "Stopped. Press Start to listen again.";
+}
+
+if (!SR) {
+  mic.disabled = true;
+  status.textContent = "This browser can't do speech recognition. Please open this page in Chrome or Edge.";
+}
+if (PHONE && SR) {
+  mic.textContent = idleLabel();
+  status.textContent = "Tap the button, allow the microphone, then speak your question.";
+}
+if (PHONE) {
+  $("#handsRow").hidden = false;
+  $("#hands").onchange = () => {
+    stopMo(); mic.textContent = idleLabel();
+    status.textContent = tapMode() ? "Tap the button, then speak." : "Press Start, then say “Hey Mo”. Keep the screen on.";
+  };
+}
+$("#tapOnly").onchange = () => {
+  stopMo(); mic.textContent = idleLabel();
+  status.textContent = tapMode() ? "Tap the button, then speak." : "Press Start, then say “Hey Mo”.";
+};
+mic.onclick = () => on ? stopMo() : startMo();
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
+$("#copy").onclick = () => navigator.clipboard.writeText(dict.value);
+$("#clear").onclick = () => dict.value = "";
+if ("speechSynthesis" in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+$("#rate").value = saved("vamo-rate") || 1;
+$("#voiceSel").onchange = e => { save("vamo-voice", e.target.value); speak("Hello, I am VAMo. This is how I sound."); };
+$("#rate").onchange = e => { save("vamo-rate", e.target.value); speak("This is my speaking speed."); };
+$("#testVoice").onclick = () => speak("Hello, I am VAMo. This is how I sound.");
+const devDlg = $("#devDlg");
+$("#devBtn").onclick = () => devDlg.showModal();
+$("#devClose").onclick = () => devDlg.close();
+devDlg.onclick = e => { if (e.target === devDlg) devDlg.close(); };
+</script>
+</body>
+</html>
