@@ -2252,15 +2252,69 @@ async function makeRec(){
 
 async function startMo(){
 
+  if(!SR){
+    status.textContent=
+      "Speech recognition isn't available in this browser. Please use the latest Chrome or Edge.";
+    return;
+  }
+
   if(!window.isSecureContext){
 
     status.textContent=
-      "The microphone only works on a secure page (https://). Open this page from an https:// address.";
+      "The microphone needs a secure page. Open VAMo using an https:// address (or localhost).";
 
     return;
   }
 
-  rec=await makeRec();
+  try{
+
+    /* Ask for microphone permission explicitly before starting recognition. */
+    if(navigator.mediaDevices?.getUserMedia){
+
+      const stream=
+        await navigator.mediaDevices.getUserMedia({
+          audio:true
+        });
+
+      stream.getTracks().forEach(
+        track=>track.stop()
+      );
+    }
+
+    rec=await makeRec();
+
+  }catch(err){
+
+    const name=err?.name||"";
+
+    const msg={
+      NotAllowedError:
+        "Microphone access was denied. Click the lock icon beside the address bar, allow Microphone, then press Start again.",
+      SecurityError:
+        "Microphone access is blocked by the page security settings. Open VAMo over HTTPS.",
+      NotFoundError:
+        "No microphone was found. Connect a microphone and try again."
+    };
+
+    status.textContent=
+      msg[name] ||
+      ("Couldn't start the microphone: "+
+       (err?.message||name||"unknown error"));
+
+    on=false;
+    mic.classList.remove("on");
+    mic.textContent=idleLabel();
+    mic.setAttribute("aria-pressed","false");
+    return;
+  }
+
+  rec.onstart=()=>{
+    on=true;
+    mic.classList.add("on");
+    mic.textContent="Stop";
+    mic.setAttribute("aria-pressed","true");
+    status.textContent=listenMsg();
+  };
 
   rec.onresult=e=>{
 
@@ -2365,6 +2419,16 @@ async function startMo(){
         problems[e.error];
 
     }else if(
+      e.error==="not-allowed" ||
+      e.error==="service-not-allowed"
+    ){
+
+      stopMo();
+
+      status.textContent=
+        "Microphone permission is required. Allow the microphone for this site and press Start again.";
+
+    }else if(
       e.error!=="no-speech" &&
       e.error!=="aborted"
     ){
@@ -2375,19 +2439,25 @@ async function startMo(){
     }
   };
 
-  rec.start();
+  try{
 
-  on=true;
+    rec.start();
 
-  mic.classList.add("on");
-  mic.textContent="Stop";
-  mic.setAttribute(
-    "aria-pressed",
-    "true"
-  );
+  }catch(err){
 
-  status.textContent=
-    listenMsg();
+    on=false;
+    mic.classList.remove("on");
+    mic.textContent=idleLabel();
+    mic.setAttribute("aria-pressed","false");
+
+    status.textContent=
+      "Couldn't start listening: "+
+      (err?.message||"the browser rejected the microphone request.");
+
+    return;
+  }
+
+  /* onstart() changes the UI once the browser actually begins listening. */
 
   if(!tapMode())
     add(
