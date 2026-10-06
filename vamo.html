@@ -34,6 +34,12 @@ textarea{width:100%;min-height:130px;padding:12px;border:1px solid var(--line);b
 ul.help{margin:0;padding-left:1.2rem}
 #askBox{flex:1;min-width:170px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit}
 #bookInfo{color:var(--mute);margin:.5rem 0}
+#viewer{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.vbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.vbar button{padding:6px 14px;border-radius:8px;border:1px solid var(--line);background:none;color:var(--ink);font:inherit;cursor:pointer}
+#pgCanvas{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
+#pgText{margin:10px 0 0;max-height:220px;overflow:auto;line-height:1.6}
+#pgText .now{background:color-mix(in srgb,var(--acc) 30%,transparent);border-radius:3px}
 .note{color:var(--mute);font-size:.88rem;margin-top:1.6rem}
 .opt[hidden]{display:none}
 .opt{display:block;margin:-.6rem 0 1.2rem;color:var(--mute);font-size:.92rem}
@@ -73,6 +79,11 @@ dialog p{margin:0 0 1rem;color:var(--mute)}
 <input type="file" id="bookFile">
 <p id="bookInfo">No book loaded. Choose a PDF or text file you have the right to use (on a phone, pick it from Files, Downloads or Drive). It stays in your browser and is not uploaded.</p>
 <div class="row"><input id="askBox" type="text" placeholder="Ask the book, e.g. how is Ki-67 calculated"><button id="askBtn">Ask</button><button id="readBtn">Read aloud</button><button id="stopBtn">Stop reading</button></div>
+<div id="viewer" hidden>
+  <div class="vbar"><button id="prevPg" aria-label="Previous page">‹ Prev</button><strong id="pgLabel"></strong><button id="nextPg" aria-label="Next page">Next ›</button></div>
+  <canvas id="pgCanvas" aria-label="The current book page"></canvas>
+  <p id="pgText"></p>
+</div>
 
 <h2>Try saying</h2>
 <ul class="help">
@@ -327,6 +338,38 @@ const STOP = new Set("a an the of to in on for and or is are was were be been wh
 const tok = t => (t.toLowerCase().match(/[a-z0-9]+/g) || []).filter(w => !STOP.has(w)).map(w => w.length > 4 ? w.replace(/(ing|ed|es|s|e|ion)$/, "") : w);
 let book = null, reading = false, readIdx = 0;
 const bookInfo = $("#bookInfo");
+const viewer = $("#viewer"), pgLabel = $("#pgLabel"), pgText = $("#pgText"), pgCanvas = $("#pgCanvas");
+let pdfDoc = null, curPage = 1, renderTask = null, shown = 0;
+
+async function showPage(n, hl) {                      // shows the page picture and its text; hl = passage being read
+  if (!book) return;
+  const total = pdfDoc ? pdfDoc.numPages : Math.max(...book.passages.map(p => p.page));
+  n = Math.min(Math.max(1, n), total);
+  curPage = n;
+  viewer.hidden = false;
+  pgLabel.textContent = "Page " + n + " of " + total;
+  pgText.replaceChildren(...book.passages.filter(p => p.page === n).map(p => {
+    const span = document.createElement("span");
+    span.textContent = p.text + " ";
+    if (hl && p.text === hl) span.className = "now";
+    return span;
+  }));
+  pgCanvas.hidden = !pdfDoc;
+  if (!pdfDoc || shown === n) return;
+  try {
+    const pg = await pdfDoc.getPage(n);
+    if (n !== curPage) return;                        // you already moved on
+    const base = pg.getViewport({scale: 1});
+    const vp = pg.getViewport({scale: (viewer.clientWidth || 600) / base.width * (window.devicePixelRatio || 1)});
+    if (renderTask) { try { renderTask.cancel(); } catch (_) {} }
+    pgCanvas.width = vp.width; pgCanvas.height = vp.height;
+    renderTask = pg.render({canvasContext: pgCanvas.getContext("2d"), viewport: vp});
+    await renderTask.promise;
+    shown = n;
+  } catch (_) {}
+}
+$("#prevPg").onclick = () => showPage(curPage - 1);
+$("#nextPg").onclick = () => showPage(curPage + 1);
 
 function chunkPage(text, page) {                      // cut a page into passages of about 70 words
   const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean), out = [];
@@ -346,7 +389,8 @@ function setBook(name, passages) {
     tok(p.text).forEach(w => p.tf[w] = (p.tf[w] || 0) + 1);
     Object.keys(p.tf).forEach(w => book.df[w] = (book.df[w] || 0) + 1);
   });
-  readIdx = 0;
+  readIdx = 0; shown = 0;
+  showPage(passages[0].page);
   const pages = new Set(passages.map(p => p.page)).size;
   bookInfo.textContent = name + ": " + pages + " page(s), " + passages.length + " passages. Try “Hey Mo, what does the book say about …”.";
   try { localStorage.setItem("vamo-book", JSON.stringify({name, passages: passages.map(p => ({page: p.page, text: p.text}))})); } catch (_) {}
@@ -370,6 +414,7 @@ function answerFromBook(q, explicit) {
   if (!book) { if (explicit) { say("No book is loaded yet. Choose a file in the Book reader section."); return true; } return false; }
   const hits = searchBook(q, explicit ? 0 : 0.6);
   if (!hits.length) return false;
+  showPage(hits[0].page, hits[0].text);
   say("From the book, page " + hits[0].page + ": " + shorten(hits[0].text, 330));
   hits.slice(1).forEach(h => add("mo", "Also on page " + h.page + ": " + shorten(h.text, 330)));
   return true;
@@ -379,12 +424,14 @@ function readFrom(i) {
   if (!book) { say("No book is loaded yet. Choose a file in the Book reader section."); return; }
   speechSynthesis.cancel();
   reading = true; readIdx = i >= book.passages.length ? 0 : i;
+  viewer.scrollIntoView({behavior: "smooth", block: "start"});
   setTimeout(readStep, 150);
 }
 function readStep() {
   if (!reading || readIdx >= book.passages.length) { stopReading(); return; }
   const p = book.passages[readIdx];
   status.textContent = "Reading page " + p.page + "…";
+  showPage(p.page, p.text);
   muted = true;                                        // don't listen to the book being read
   const u = new SpeechSynthesisUtterance(p.text);
   u.lang = "en-US";
@@ -405,6 +452,7 @@ function readFromPage(n) {
 async function readPdf(file) {
   if (!window.pdfjsLib) throw new Error("the PDF reader library didn't load (check your internet connection)");
   const pdf = await pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise, out = [];
+  pdfDoc = pdf;                                        // kept so pages can be shown as pictures
   for (let n = 1; n <= pdf.numPages; n++) {
     const tc = await (await pdf.getPage(n)).getTextContent();
     out.push(...chunkPage(tc.items.map(i => i.str).join(" "), n));
@@ -416,6 +464,7 @@ $("#bookFile").onchange = async e => {
   if (!f) return;
   if (!/\.(pdf|txt|md)$/i.test(f.name)) { bookInfo.textContent = "Please choose a PDF or text file (.pdf, .txt or .md)."; return; }
   bookInfo.textContent = "Reading " + f.name + "…";
+  pdfDoc = null; shown = 0;
   try {
     let ps;
     if (/\.pdf$/i.test(f.name)) ps = await readPdf(f);
