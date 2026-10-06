@@ -29,9 +29,11 @@ h1{font-size:2.6rem;margin:0;letter-spacing:-.03em}
 #log a{color:inherit;font-weight:700}
 h2{font-size:1.1rem;margin:1.6rem 0 .5rem}
 textarea{width:100%;min-height:130px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font:inherit;resize:vertical}
-.row{display:flex;gap:8px;margin-top:8px}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .row button{padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;cursor:pointer}
 ul.help{margin:0;padding-left:1.2rem}
+#askBox{flex:1;min-width:170px;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:inherit}
+#bookInfo{color:var(--mute);margin:.5rem 0}
 .note{color:var(--mute);font-size:.88rem;margin-top:1.6rem}
 .opt[hidden]{display:none}
 .opt{display:block;margin:-.6rem 0 1.2rem;color:var(--mute);font-size:.92rem}
@@ -67,6 +69,11 @@ dialog p{margin:0 0 1rem;color:var(--mute)}
 <textarea id="dict" placeholder="Say “Hey Mo, start dictation”. What you say is typed here. Say “new line” for a line break and “stop dictation” to finish."></textarea>
 <div class="row"><button id="copy">Copy text</button><button id="clear">Clear</button></div>
 
+<h2>Book reader</h2>
+<input type="file" id="bookFile" accept=".pdf,.txt,.md,application/pdf,text/plain">
+<p id="bookInfo">No book loaded. Choose a PDF or text file you have the right to use. It stays in your browser and is not uploaded.</p>
+<div class="row"><input id="askBox" type="text" placeholder="Ask the book, e.g. how is Ki-67 calculated"><button id="askBtn">Ask</button><button id="readBtn">Read aloud</button><button id="stopBtn">Stop reading</button></div>
+
 <h2>Try saying</h2>
 <ul class="help">
   <li>Hey Mo, what is adenocarcinoma</li>
@@ -76,6 +83,8 @@ dialog p{margin:0 0 1rem;color:var(--mute)}
   <li>Hey Mo, open YouTube</li>
   <li>Hey Mo, tell me a joke</li>
   <li>Hey Mo, start dictation</li>
+  <li>Hey Mo, what does the book say about …</li>
+  <li>Hey Mo, read the book / read page 3</li>
 </ul>
 
 <p class="note">Works in Chrome and Edge. Your browser’s speech service turns your voice into text (Chrome sends the audio to Google), so don’t dictate patient names or other identifying details. Definitions are brief general information, not clinical advice.</p>
@@ -89,6 +98,7 @@ dialog p{margin:0 0 1rem;color:var(--mute)}
   <button id="devClose">Close</button>
 </dialog>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 const $ = s => document.querySelector(s);
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -262,6 +272,13 @@ function handle(cmd) {
   if (/\bdate\b|what day/.test(t)) {
     say("Today is " + new Date().toLocaleDateString([], {weekday: "long", day: "numeric", month: "long", year: "numeric"}) + "."); return;
   }
+  let bm;
+  if ((bm = t.match(/read (?:from )?page (\d+)/))) { readFromPage(+bm[1]); return; }
+  if (/^(?:read (?:the )?book|read aloud|start reading|continue reading|resume reading)/.test(t)) { readFrom(/continue|resume/.test(t) ? readIdx : 0); return; }
+  if ((bm = t.match(/(?:what does the book say about|search the book for|ask the book(?: about)?|find in the book|according to the book)\s+(.+)/))) {
+    if (!answerFromBook(bm[1], true)) say("I couldn't find that in the book.");
+    return;
+  }
   const s = t.match(/^(?:search for|search|google|look up)\s+(.+)/);
   if (s) { openUrl("results for " + s[1], "https://www.google.com/search?q=" + encodeURIComponent(s[1])); return; }
   for (const [p, a] of ANSWERS) if (has(t, p)) { say(pick(a)); return; }
@@ -276,6 +293,7 @@ function handle(cmd) {
       return;
     }
   }
+  if (answerFromBook(t, false)) return;                 // last chance: look in the loaded book
   say("Sorry, I don't know that one yet. You can say search for, followed by your question.");
 }
 
@@ -302,6 +320,121 @@ function onText(raw) {
   if (tapMode()) { add("you", text); handle(text); return; }   // phones: no wake word needed
   add("dim", text + " (ignored: say “Hey Mo” first)");
 }
+
+// ---- Book reader ----
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const STOP = new Set("a an the of to in on for and or is are was were be been what whats does do did how why when which who about with from by at as it its this that these those say says said book tell me explain please".split(" "));
+const tok = t => (t.toLowerCase().match(/[a-z0-9]+/g) || []).filter(w => !STOP.has(w)).map(w => w.length > 4 ? w.replace(/(ing|ed|es|s|e|ion)$/, "") : w);
+let book = null, reading = false, readIdx = 0;
+const bookInfo = $("#bookInfo");
+
+function chunkPage(text, page) {                      // cut a page into passages of about 70 words
+  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean), out = [];
+  for (let i = 0; i < words.length;) {
+    let end = Math.min(i + 70, words.length);
+    if (end < words.length) for (let j = end - 1; j > i + 40; j--) if (/[.!?]$/.test(words[j])) { end = j + 1; break; }
+    out.push({page, text: words.slice(i, end).join(" ")});
+    i = end;
+  }
+  return out;
+}
+
+function setBook(name, passages) {
+  book = {name, passages, df: Object.create(null)};
+  passages.forEach(p => {
+    p.tf = Object.create(null);
+    tok(p.text).forEach(w => p.tf[w] = (p.tf[w] || 0) + 1);
+    Object.keys(p.tf).forEach(w => book.df[w] = (book.df[w] || 0) + 1);
+  });
+  readIdx = 0;
+  const pages = new Set(passages.map(p => p.page)).size;
+  bookInfo.textContent = name + ": " + pages + " page(s), " + passages.length + " passages. Try “Hey Mo, what does the book say about …”.";
+  try { localStorage.setItem("vamo-book", JSON.stringify({name, passages: passages.map(p => ({page: p.page, text: p.text}))})); } catch (_) {}
+}
+
+function searchBook(q, share) {                        // keyword search, best passages first
+  const qt = [...new Set(tok(q))];
+  if (!qt.length) return [];
+  const N = book.passages.length;
+  return book.passages.map(p => {
+    let score = 0, hit = 0;
+    for (const w of qt) if (p.tf[w]) { hit++; score += (1 + Math.log(p.tf[w])) * Math.log(1 + N / book.df[w]); }
+    return {page: p.page, text: p.text, hit, score: score * hit / qt.length};
+  }).filter(p => p.hit >= Math.max(1, Math.ceil(qt.length * share)))
+    .sort((a, b) => b.score - a.score).slice(0, 3);
+}
+
+const shorten = (t, n) => t.length <= n ? t : t.slice(0, t.lastIndexOf(" ", n)) + "…";
+
+function answerFromBook(q, explicit) {
+  if (!book) { if (explicit) { say("No book is loaded yet. Choose a file in the Book reader section."); return true; } return false; }
+  const hits = searchBook(q, explicit ? 0 : 0.6);
+  if (!hits.length) return false;
+  say("From the book, page " + hits[0].page + ": " + shorten(hits[0].text, 330));
+  hits.slice(1).forEach(h => add("mo", "Also on page " + h.page + ": " + shorten(h.text, 330)));
+  return true;
+}
+
+function readFrom(i) {
+  if (!book) { say("No book is loaded yet. Choose a file in the Book reader section."); return; }
+  speechSynthesis.cancel();
+  reading = true; readIdx = i >= book.passages.length ? 0 : i;
+  setTimeout(readStep, 150);
+}
+function readStep() {
+  if (!reading || readIdx >= book.passages.length) { stopReading(); return; }
+  const p = book.passages[readIdx];
+  status.textContent = "Reading page " + p.page + "…";
+  muted = true;                                        // don't listen to the book being read
+  const u = new SpeechSynthesisUtterance(p.text);
+  u.lang = "en-US";
+  u.onend = () => { readIdx++; readStep(); };
+  u.onerror = () => { reading = false; muted = false; };
+  speechSynthesis.speak(u);
+}
+function stopReading() {
+  reading = false; speechSynthesis.cancel(); muted = false;
+  status.textContent = on ? listenMsg() : "Press Start to listen.";
+}
+function readFromPage(n) {
+  if (!book) { say("No book is loaded yet."); return; }
+  const i = book.passages.findIndex(p => p.page >= n);
+  if (i < 0) say("That page isn't in the book."); else readFrom(i);
+}
+
+async function readPdf(file) {
+  if (!window.pdfjsLib) throw new Error("the PDF reader library didn't load (check your internet connection)");
+  const pdf = await pdfjsLib.getDocument({data: await file.arrayBuffer()}).promise, out = [];
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const tc = await (await pdf.getPage(n)).getTextContent();
+    out.push(...chunkPage(tc.items.map(i => i.str).join(" "), n));
+  }
+  return out;
+}
+$("#bookFile").onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  bookInfo.textContent = "Reading " + f.name + "…";
+  try {
+    let ps;
+    if (/\.pdf$/i.test(f.name)) ps = await readPdf(f);
+    else { ps = chunkPage(await f.text(), 1); ps.forEach((p, i) => p.page = Math.floor(i / 5) + 1); }
+    if (!ps.length) throw new Error("no readable text found. A scanned book (pictures of pages) can't be read without text recognition");
+    setBook(f.name, ps);
+  } catch (err) { bookInfo.textContent = "Couldn't read that file: " + err.message; }
+};
+const askTyped = () => {
+  const q = $("#askBox").value.trim();
+  if (!q) return;
+  add("you", q);
+  if (!answerFromBook(q, true)) say("I couldn't find that in the book.");
+};
+$("#askBtn").onclick = askTyped;
+$("#askBox").onkeydown = e => { if (e.key === "Enter") askTyped(); };
+$("#readBtn").onclick = () => readFrom(readIdx);
+$("#stopBtn").onclick = stopReading;
+try { const saved = JSON.parse(localStorage.getItem("vamo-book") || "null"); if (saved) setBook(saved.name, saved.passages); } catch (_) {}
+// ---- end book reader ----
 
 async function makeRec() {
   const r = new SR();
