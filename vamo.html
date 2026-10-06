@@ -70,8 +70,8 @@ dialog p{margin:0 0 1rem;color:var(--mute)}
 <div class="row"><button id="copy">Copy text</button><button id="clear">Clear</button></div>
 
 <h2>Book reader</h2>
-<input type="file" id="bookFile" accept=".pdf,.txt,.md,application/pdf,text/plain">
-<p id="bookInfo">No book loaded. Choose a PDF or text file you have the right to use. It stays in your browser and is not uploaded.</p>
+<input type="file" id="bookFile">
+<p id="bookInfo">No book loaded. Choose a PDF or text file you have the right to use (on a phone, pick it from Files, Downloads or Drive). It stays in your browser and is not uploaded.</p>
 <div class="row"><input id="askBox" type="text" placeholder="Ask the book, e.g. how is Ki-67 calculated"><button id="askBtn">Ask</button><button id="readBtn">Read aloud</button><button id="stopBtn">Stop reading</button></div>
 
 <h2>Try saying</h2>
@@ -414,6 +414,7 @@ async function readPdf(file) {
 $("#bookFile").onchange = async e => {
   const f = e.target.files[0];
   if (!f) return;
+  if (!/\.(pdf|txt|md)$/i.test(f.name)) { bookInfo.textContent = "Please choose a PDF or text file (.pdf, .txt or .md)."; return; }
   bookInfo.textContent = "Reading " + f.name + "…";
   try {
     let ps;
